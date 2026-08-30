@@ -10,6 +10,10 @@ app.use(helmet());          // secure headers — from your security-layer discu
 app.use(cors());            // controls which origins can call this API
 app.use(express.json());    // lets Express read JSON request bodies
 
+// ROUTES
+const authRoutes = require('./routes/authRoutes');
+app.use('/api/auth', authRoutes);
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
@@ -19,4 +23,3 @@ app.get('/hi', (req, res) => {
 });
 
 module.exports = app;
-
