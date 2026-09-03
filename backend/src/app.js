@@ -11,15 +11,21 @@ app.use(cors());            // controls which origins can call this API
 app.use(express.json());    // lets Express read JSON request bodies
 
 // ROUTES
+
+// ============== Auth Routes ==============
 const authRoutes = require('./routes/authRoutes');
 app.use('/api/auth', authRoutes);
 
+// ============= Health Routes ==============
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Easter egg route to see if the server is running
 app.get('/hi', (req, res) => {
   res.json({ status: 'HIIIIIIIIIIIIIII' }); // test ( easter egg ) route to see if the server is running
 });
-
+// ============= Contact Routes ==============
+const contactRoutes = require('./routes/contactRoutes');
+app.use('/api/contacts', contactRoutes);
 module.exports = app;

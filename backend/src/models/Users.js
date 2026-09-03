@@ -12,3 +12,6 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);
+
+// ITO YUNG SCHEMA KAPAG MAY NEED NA I RETREIVE NG USER DATA,
+//  KAGAYA NG PAG LOGIN, PAG REGISTER, PAG GET NG USER INFO, ETC.
