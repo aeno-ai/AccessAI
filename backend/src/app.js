@@ -28,4 +28,9 @@ app.get('/hi', (req, res) => {
 // ============= Contact Routes ==============
 const contactRoutes = require('./routes/contactRoutes');
 app.use('/api/contacts', contactRoutes);
+
+// ============= SOS Routes ==============
+const sosRoutes = require('./routes/sosRoutes');
+app.use('/api/sos', sosRoutes);
+
 module.exports = app;

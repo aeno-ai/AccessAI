@@ -3,10 +3,16 @@
  * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
  */
 
-import '@/global.css';
-
 import { Platform } from 'react-native';
 
+export const colors = {
+  primary: '#6C5CE7',
+  background: '#FFFFFF',
+  inputBorder: '#E0E0E0',
+  textDark: '#1A1A1A',
+  textMuted: '#8A8A8A',
+  error: '#E74C3C',
+};
 export const Colors = {
   light: {
     text: '#000000',
@@ -60,6 +66,7 @@ export const Spacing = {
   five: 32,
   six: 64,
 } as const;
+
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
 export const MaxContentWidth = 800;

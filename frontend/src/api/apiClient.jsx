@@ -1,5 +1,4 @@
-// frontend/src/api/client.js
-const BASE_URL = process.env.BASE_URL; // swap in your real IP from step 1
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 export const apiFetch = async (endpoint, options = {}) => {
   const response = await fetch(`${BASE_URL}${endpoint}`, {
