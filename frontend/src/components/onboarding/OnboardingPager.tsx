@@ -1,14 +1,12 @@
 import { useRef, useState } from 'react';
-import {
-  FlatList,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  StyleSheet,
-  View,
-  type LayoutChangeEvent,
-} from 'react-native';
+import { FlatList, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useRouter } from 'expo-router';
-import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
+import Animated, {
+  useAnimatedReaction,
+  useAnimatedScrollHandler,
+  useSharedValue,
+} from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import OnboardingFooter from '@/components/onboarding/OnboardingFooter';
 import {
   FeaturesPage,
@@ -55,13 +53,22 @@ export default function OnboardingPager() {
     },
   });
 
-  const syncPageIndex = (offsetX: number) => {
-    if (!pagerWidth) {
-      return;
-    }
-    const nextPage = Math.round(offsetX / pagerWidth);
-    setCurrentPage(Math.max(0, Math.min(nextPage, PAGE_COUNT - 1)));
-  };
+  // The footer's step dots read `scrollX` directly, so they always match what's
+  // on screen while swiping. `currentPage` (which the Next button uses to decide
+  // where to go) used to be updated separately, only when a swipe "ended" —
+  // those end-of-swipe events don't always fire reliably, so it could drift out
+  // of sync with what the dots (and the user) were actually showing. Deriving
+  // `currentPage` from the same `scrollX` value the dots use guarantees they can
+  // never disagree.
+  useAnimatedReaction(
+    () => (pagerWidth > 0 ? Math.round(scrollX.value / pagerWidth) : 0),
+    (page, previousPage) => {
+      if (page !== previousPage) {
+        scheduleOnRN(setCurrentPage, Math.max(0, Math.min(page, PAGE_COUNT - 1)));
+      }
+    },
+    [pagerWidth],
+  );
 
   const goToPage = (page: number) => {
     const nextPage = Math.max(0, Math.min(page, PAGE_COUNT - 1));
@@ -125,12 +132,6 @@ export default function OnboardingPager() {
             decelerationRate="fast"
             onScroll={onScroll}
             scrollEventThrottle={16}
-            onMomentumScrollEnd={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-              syncPageIndex(event.nativeEvent.contentOffset.x);
-            }}
-            onScrollEndDrag={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-              syncPageIndex(event.nativeEvent.contentOffset.x);
-            }}
             getItemLayout={(_, index) => ({
               length: pagerWidth,
               offset: pagerWidth * index,

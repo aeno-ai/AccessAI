@@ -1,0 +1,45 @@
+import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
+
+const DATABASE_NAME = 'accessai.db';
+
+let dbPromise: Promise<SQLiteDatabase> | null = null;
+
+async function migrate(db: SQLiteDatabase) {
+  await db.execAsync(`
+    PRAGMA journal_mode = WAL;
+
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY NOT NULL,
+      title TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      synced_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY NOT NULL,
+      conversation_id TEXT NOT NULL,
+      sender TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE
+    );
+  `);
+}
+
+/**
+ * Opens (or returns the already-open) local SQLite database, running the
+ * table-creation migration on first open. This is the on-device store behind
+ * offline-first conversation history — everything here is local to the
+ * device; see `sync.ts` for the (currently stubbed) path to the backend.
+ */
+export async function getDatabase(): Promise<SQLiteDatabase> {
+  if (!dbPromise) {
+    dbPromise = openDatabaseAsync(DATABASE_NAME).then(async (db) => {
+      await migrate(db);
+      return db;
+    });
+  }
+  return dbPromise;
+}

@@ -14,6 +14,7 @@ export const colors = {
   textMuted: '#9CA3AF',
   white: '#FFFFFF',
   error: '#E74C3C',
+  dark: '#241F3D',
 } as const;
 
 export const Spacing = {

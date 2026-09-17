@@ -33,7 +33,14 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-sqlite",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow PDAccessAI to use your location so it can be included when you send an SOS alert."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -5,7 +5,7 @@ const ACCESSIBILITY_PREFERENCE_KEY = 'accessibilityPreference';
 
 export async function hasCompletedOnboarding(): Promise<boolean> {
   const value = await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY);
-  return value === 'true';
+  return value === 'false'; //set to false to show onboarding again
 }
 
 export async function markOnboardingComplete(): Promise<void> {
