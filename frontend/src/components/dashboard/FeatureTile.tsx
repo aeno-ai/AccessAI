@@ -1,7 +1,7 @@
-import { Text, TouchableOpacity, StyleSheet, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { colors } from '@/constants/theme';
-import type { IconName } from '@/constants/onboarding';
+import { Text, TouchableOpacity, StyleSheet, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { colors } from "@/constants/theme";
+import type { IconName } from "@/constants/onboarding";
 
 type FeatureTileProps = {
   icon: IconName;
@@ -17,7 +17,12 @@ type FeatureTileProps = {
  * every tile is a discoverable shortcut into the single shared conversation
  * screen rather than an isolated destination of its own.
  */
-export function FeatureTile({ icon, title, description, onPress }: FeatureTileProps) {
+export function FeatureTile({
+  icon,
+  title,
+  description,
+  onPress,
+}: FeatureTileProps) {
   return (
     <TouchableOpacity
       style={styles.tile}
@@ -37,7 +42,7 @@ export function FeatureTile({ icon, title, description, onPress }: FeatureTilePr
 
 const styles = StyleSheet.create({
   tile: {
-    flexBasis: '48%',
+    flexBasis: "48%",
     flexGrow: 1,
     backgroundColor: colors.white,
     borderWidth: 1,
@@ -55,13 +60,13 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 10,
     backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 10,
   },
   title: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: "700",
     color: colors.textPrimary,
     marginBottom: 2,
   },

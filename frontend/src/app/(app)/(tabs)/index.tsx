@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
 import { DrawerToggleButton } from 'expo-router/drawer';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,7 +28,12 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <View style={styles.greetingCard}>
+        <Pressable
+          style={styles.greetingCard}
+          onPress={() => openConversation()}
+          accessibilityRole="button"
+          accessibilityLabel="Start a conversation"
+        >
           <Text style={styles.greetingTitle}>Hello!</Text>
           <Text style={styles.greetingSubtitle}>
             What kind of conversation do you need help with right now?
@@ -44,7 +49,7 @@ export default function HomeScreen() {
               <Text style={styles.pillText}>Sign Language Recognition</Text>
             </View>
           </View>
-        </View>
+        </Pressable>
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Core AI Features</Text>
