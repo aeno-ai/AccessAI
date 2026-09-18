@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import * as Speech from 'expo-speech';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/constants/theme';
 import type { Message } from '@/db/conversations';
+import { speakMixed, stopMixed } from '@/utils/speechHelper';
 
 type MessageBubbleProps = {
   message: Message;
@@ -13,7 +13,9 @@ type MessageBubbleProps = {
  * One message in the conversation, aligned by who "said" it — `sender:
  * 'me'` on the right (the person holding the phone), `'them'` on the left
  * (whoever they just handed it to). Every bubble can be read aloud via
- * real, offline-capable text-to-speech (`expo-speech`).
+ * real, offline-capable text-to-speech (`expo-speech`), automatically
+ * switching between English and Filipino voices clause by clause for
+ * mixed "Taglish" messages — see `utils/speechHelper.ts`.
  */
 export function MessageBubble({ message }: MessageBubbleProps) {
   const [speaking, setSpeaking] = useState(false);
@@ -24,7 +26,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   useEffect(() => {
     return () => {
       if (speaking) {
-        void Speech.stop();
+        stopMixed();
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -32,14 +34,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   const handleToggleSpeak = () => {
     if (speaking) {
-      void Speech.stop();
+      stopMixed();
       setSpeaking(false);
       return;
     }
     setSpeaking(true);
-    Speech.speak(message.body, {
+    void speakMixed(message.body, {
       onDone: () => setSpeaking(false),
-      onStopped: () => setSpeaking(false),
       onError: () => setSpeaking(false),
     });
   };
