@@ -1,6 +1,10 @@
 const mongoose = require('mongoose');
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; 
+//this means that the email should not contain spaces,
+//should have an '@' symbol, and should have a domain name
+//after the '@' symbol.
 
 const userSchema = new mongoose.Schema({
   email: {

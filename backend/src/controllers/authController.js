@@ -2,32 +2,16 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const User = require('../models/Users');
 
-// Regex: At least 8 chars (.{8,}), 1 uppercase (?=.*[A-Z]), 1 number (?=.*\d)
-const passwordRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
-
-// Every field a query or bcrypt call touches must actually be a string —
-// otherwise Mongo can interpret an object payload (e.g. `{"$gt": ""}`) as a
-// query operator instead of a literal value. `!email` alone lets objects
-// through, since a non-empty object is truthy.
-function isNonEmptyString(value) {
-  return typeof value === 'string' && value.length > 0;
-}
-
+// email/password/name/role are already guaranteed to be well-formed strings
+// (right type, right shape, right length) by the validator chains wired up
+// in routes/authRoutes.js, which run — and reject the request — before this
+// function ever executes. That's also what closes off NoSQL operator
+// injection here: an object payload like `{"$gt": ""}` fails `isString()`
+// at the route layer and never reaches the `User.findOne({ email })` query
+// below.
 const register = async (req, res, next) => {
   try {
     const { email, password, name, role } = req.body;
-
-    // 1. Check if required fields exist and are actually strings
-    if (!isNonEmptyString(email) || !isNonEmptyString(password) || !isNonEmptyString(name)) {
-      return res.status(400).json({ message: 'Email, password, and name are required' });
-    }
-
-    // 2. Validate password strength
-    if (!passwordRegex.test(password)) {
-      return res.status(400).json({
-        message: 'Password must be at least 8 characters long, contain at least one uppercase letter, and at least one number.'
-      });
-    }
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -49,12 +33,6 @@ const register = async (req, res, next) => {
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-
-    // 1. Reject anything that isn't a plain string before it ever reaches a
-    // query or bcrypt.compare — also short-circuits unnecessary DB lookups.
-    if (!isNonEmptyString(email) || !isNonEmptyString(password)) {
-      return res.status(400).json({ message: 'Email and password are required' });
-    }
 
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
