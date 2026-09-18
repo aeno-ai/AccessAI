@@ -7,10 +7,10 @@ import { FeatureTile } from '@/components/dashboard/FeatureTile';
 import { SosBanner } from '@/components/dashboard/SosBanner';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { colors, MaxContentWidth, Spacing } from '@/constants/theme';
-import { DASHBOARD_FEATURES, type ConversationMode } from '@/constants/dashboard';
+import { DASHBOARD_FEATURES } from '@/constants/dashboard';
 
-function openConversation(mode?: ConversationMode) {
-  router.push({ pathname: '/conversation', params: mode ? { mode } : {} });
+function openConversation() {
+  router.push('/conversation');
 }
 
 export default function HomeScreen() {
@@ -53,7 +53,7 @@ export default function HomeScreen() {
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Core AI Features</Text>
-          <Text style={styles.sectionHint}>tap to start</Text>
+          <Text style={styles.sectionHint}>available in every conversation</Text>
         </View>
         <View style={styles.grid}>
           {DASHBOARD_FEATURES.map((feature) => (
@@ -62,7 +62,6 @@ export default function HomeScreen() {
               icon={feature.icon}
               title={feature.title}
               description={feature.description}
-              onPress={() => openConversation(feature.id)}
             />
           ))}
         </View>

@@ -69,6 +69,28 @@ export async function listConversations(): Promise<Conversation[]> {
   return rows.map(toConversation);
 }
 
+export async function getConversation(id: string): Promise<Conversation | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<ConversationRow>(
+    'SELECT * FROM conversations WHERE id = ?',
+    [id],
+  );
+  return row ? toConversation(row) : null;
+}
+
+/**
+ * Deletes a conversation and its messages. Messages are deleted explicitly,
+ * first, rather than relying solely on the table's `ON DELETE CASCADE` —
+ * SQLite only enforces foreign keys when a session has turned that on (see
+ * `PRAGMA foreign_keys = ON` in client.ts), so this stays correct even if
+ * that pragma isn't honored for some reason.
+ */
+export async function deleteConversation(id: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM messages WHERE conversation_id = ?', [id]);
+  await db.runAsync('DELETE FROM conversations WHERE id = ?', [id]);
+}
+
 export async function getMessages(conversationId: string): Promise<Message[]> {
   const db = await getDatabase();
   const rows = await db.getAllAsync<MessageRow>(
@@ -87,6 +109,11 @@ export async function createConversation(title: string, mode: string): Promise<C
     [id, title, mode, now, now],
   );
   return { id, title, mode, createdAt: now, updatedAt: now, syncedAt: null };
+}
+
+export async function markConversationSynced(conversationId: string, syncedAt: number): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('UPDATE conversations SET synced_at = ? WHERE id = ?', [syncedAt, conversationId]);
 }
 
 export async function addMessage(

@@ -5,6 +5,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BootstrapProvider, useBootstrap } from '@/hooks/use-bootstrap';
+import { useConnectivitySync } from '@/hooks/use-connectivity-sync';
 import { colors } from '@/constants/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -23,6 +24,10 @@ function BootstrapLoader() {
 
 function RootNavigator() {
   const { ready, isLoggedIn, hasOnboarded } = useBootstrap();
+
+  // Watches for the device coming back online and syncs any locally-saved
+  // conversations to the backend when it does (see the hook for details).
+  useConnectivitySync();
 
   useEffect(() => {
     if (ready) {

@@ -55,6 +55,10 @@ app.use('/api/contacts', contactRoutes);
 const sosRoutes = require('./routes/sosRoutes');
 app.use('/api/sos', sosRoutes);
 
+// ============= Conversation Sync Routes ==============
+const conversationRoutes = require('./routes/conversationRoutes');
+app.use('/api/conversations', conversationRoutes);
+
 // ============= 404 ==============
 app.use((req, res) => {
   res.status(404).json({ message: 'Not found' });

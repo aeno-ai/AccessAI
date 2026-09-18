@@ -7,6 +7,7 @@ let dbPromise: Promise<SQLiteDatabase> | null = null;
 async function migrate(db: SQLiteDatabase) {
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
+    PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY NOT NULL,

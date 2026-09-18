@@ -1,10 +1,16 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { colors, MaxContentWidth, Spacing } from '@/constants/theme';
-import { listConversations, seedDummyDataIfEmpty, type Conversation } from '@/db/conversations';
+import {
+  deleteConversation,
+  listConversations,
+  seedDummyDataIfEmpty,
+  type Conversation,
+} from '@/db/conversations';
+import { syncConversations } from '@/db/sync';
 
 function formatTimestamp(ms: number): string {
   return new Date(ms).toLocaleString(undefined, {
@@ -25,6 +31,9 @@ export default function HistoryScreen() {
       let cancelled = false;
       (async () => {
         await seedDummyDataIfEmpty();
+        // Best-effort — if this fails (offline, server unreachable), the
+        // conversations already saved on-device are still shown below.
+        await syncConversations();
         const rows = await listConversations();
         if (!cancelled) {
           setConversations(rows);
@@ -36,12 +45,32 @@ export default function HistoryScreen() {
     }, []),
   );
 
+  const handleDelete = (conversation: Conversation) => {
+    Alert.alert(
+      'Delete conversation?',
+      `"${conversation.title}" and everything in it will be deleted. This can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              await deleteConversation(conversation.id);
+              setConversations(await listConversations());
+            })();
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <ScreenShell maxWidth={MaxContentWidth.app}>
       <View style={styles.header}>
         <Text style={styles.title}>History</Text>
         <Text style={styles.subtitle}>
-          Saved locally on this device. Syncing to the cloud once you are online is coming soon.
+          Saved on this device and syncs to the cloud automatically once you are online.
         </Text>
       </View>
 
@@ -60,7 +89,12 @@ export default function HistoryScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
-            <View style={styles.row}>
+            <TouchableOpacity
+              style={styles.row}
+              onPress={() => router.push({ pathname: '/conversation', params: { id: item.id } })}
+              accessibilityRole="button"
+              accessibilityLabel={`Continue conversation: ${item.title}`}
+            >
               <View style={styles.rowIcon}>
                 <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.primary} />
               </View>
@@ -73,7 +107,16 @@ export default function HistoryScreen() {
                   <Text style={styles.offlineBadgeText}>Offline</Text>
                 </View>
               ) : null}
-            </View>
+              <TouchableOpacity
+                onPress={() => handleDelete(item)}
+                hitSlop={8}
+                style={styles.deleteButton}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete conversation: ${item.title}`}
+              >
+                <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            </TouchableOpacity>
           )}
         />
       )}
@@ -153,5 +196,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: colors.textMuted,
+  },
+  deleteButton: {
+    marginLeft: 10,
+    padding: 4,
   },
 });
