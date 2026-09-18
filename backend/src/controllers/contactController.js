@@ -1,24 +1,43 @@
 const EmergencyContact = require('../models/EmergencyContact');
 
-const createContact = async (req, res) => {
+// Only these fields may ever be set by a client. Never spread `req.body`
+// directly into a create/update call — a stray `userId` key in the payload
+// would otherwise silently override the trusted value below and let one
+// user attribute a contact to someone else's account.
+const CONTACT_FIELDS = ['name', 'phoneNumber', 'relationship', 'email'];
+
+function pickContactFields(body) {
+  const picked = {};
+  for (const field of CONTACT_FIELDS) {
+    if (body[field] !== undefined) {
+      picked[field] = body[field];
+    }
+  }
+  return picked;
+}
+
+const createContact = async (req, res, next) => {
   try {
-    const contact = await EmergencyContact.create({ userId: req.user.userId, ...req.body });
+    const contact = await EmergencyContact.create({
+      userId: req.user.userId,
+      ...pickContactFields(req.body),
+    });
     res.status(201).json(contact);
   } catch (error) {
-    res.status(500).json({ message: 'Something went wrong', error: error.message });
+    next(error);
   }
 };
 
-const getContacts = async (req, res) => {
+const getContacts = async (req, res, next) => {
   try {
     const contacts = await EmergencyContact.find({ userId: req.user.userId });
     res.json(contacts);
   } catch (error) {
-    res.status(500).json({ message: 'Something went wrong', error: error.message });
+    next(error);
   }
 };
 
-const updateContact = async (req, res) => {
+const updateContact = async (req, res, next) => {
   try {
     const contact = await EmergencyContact.findById(req.params.id);
 
@@ -27,20 +46,21 @@ const updateContact = async (req, res) => {
 
     // It exists — but does it actually belong to whoever's asking?
     // (protect already confirmed WHO they are — this checks WHAT they're allowed to touch.)
-    if (contact.userId.toString() !== req.user.userId) {   
+    if (contact.userId.toString() !== req.user.userId) {
       return res.status(403).json({ message: 'Not authorized to edit this contact' });
     }
 
-    // Both checks passed — safe to actually update.
-    Object.assign(contact, req.body);
+    // Both checks passed — safe to actually update. Only whitelisted fields,
+    // same reasoning as createContact: never let the client touch `userId`.
+    Object.assign(contact, pickContactFields(req.body));
     await contact.save();
     res.json(contact);
   } catch (error) {
-    res.status(500).json({ message: 'Something went wrong. Cannot update contact.', error: error.message });
+    next(error);
   }
 };
 
-const deleteContact = async (req, res) => {
+const deleteContact = async (req, res, next) => {
   try {
     const contact = await EmergencyContact.findById(req.params.id);
     if (!contact) return res.status(404).json({ message: 'Contact not found' });
@@ -50,7 +70,7 @@ const deleteContact = async (req, res) => {
     await contact.deleteOne();
     res.json({ message: 'Contact deleted' });
   } catch (error) {
-    res.status(500).json({ message: 'Something went wrong. Cannot delete contact.', error: error.message });
+    next(error);
   }
 };
 

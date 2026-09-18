@@ -5,8 +5,8 @@ const sosEventSchema = new mongoose.Schema({
   status: { type: String, enum: ['active', 'resolved'], default: 'active' },
   triggerMethod: { type: String, required: true }, // deliberately NOT an enum — see reasoning above
   location: {
-    latitude: Number,
-    longitude: Number,
+    latitude: { type: Number, min: -90, max: 90 },
+    longitude: { type: Number, min: -180, max: 180 },
   },
   message: { type: String, default: 'Emergency — I need help' },
   silentMode: { type: Boolean, default: false },

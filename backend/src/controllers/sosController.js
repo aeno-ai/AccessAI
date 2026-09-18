@@ -1,7 +1,7 @@
 const SOSEvent = require('../models/SOSEvent');
 const EmergencyContact = require('../models/EmergencyContact');
 
-const triggerSOS = async (req, res) => {
+const triggerSOS = async (req, res, next) => {
   try {
     const { triggerMethod, location, message, silentMode, isTest } = req.body;
 
@@ -25,11 +25,11 @@ const triggerSOS = async (req, res) => {
       contactsToNotify: contacts.length, // actual sending comes later — this just confirms the link works
     });
   } catch (error) {
-    res.status(500).json({ message: 'Something went wrong', error: error.message });
+    next(error);
   }
 };
 
-const resolveSOS = async (req, res) => {
+const resolveSOS = async (req, res, next) => {
   try {
     const event = await SOSEvent.findById(req.params.id);
 
@@ -44,7 +44,7 @@ const resolveSOS = async (req, res) => {
 
     res.json(event);
   } catch (error) {
-    res.status(500).json({ message: 'Something went wrong', error: error.message });
+    next(error);
   }
 };
 

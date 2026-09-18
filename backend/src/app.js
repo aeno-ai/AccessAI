@@ -3,12 +3,34 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const { generalLimiter } = require('./middleware/rateLimiter');
 
 const app = express();
 
-app.use(helmet());          // secure headers — from your security-layer discussion, baked in from line one
-app.use(cors());            // controls which origins can call this API
-app.use(express.json());    // lets Express read JSON request bodies
+// Comma-separated list of allowed origins, e.g. "http://localhost:8081,https://example.com".
+// Left unset, every origin is allowed — keeps local dev friction-free. Set it
+// in production to actually restrict who can call this API from a browser.
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
+  : null;
+
+const corsOptions = allowedOrigins
+  ? {
+      origin(origin, callback) {
+        // Requests with no Origin header (native apps, curl, server-to-server) are always allowed —
+        // CORS is a browser-enforced concept and doesn't apply to them anyway.
+        if (!origin || allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'));
+      },
+    }
+  : undefined;
+
+app.use(helmet());              // secure headers — from your security-layer discussion, baked in from line one
+app.use(cors(corsOptions));     // controls which origins can call this API
+app.use(generalLimiter);        // baseline anti-abuse limit on every route
+app.use(express.json());        // lets Express read JSON request bodies
 
 // ROUTES
 
@@ -32,5 +54,22 @@ app.use('/api/contacts', contactRoutes);
 // ============= SOS Routes ==============
 const sosRoutes = require('./routes/sosRoutes');
 app.use('/api/sos', sosRoutes);
+
+// ============= 404 ==============
+app.use((req, res) => {
+  res.status(404).json({ message: 'Not found' });
+});
+
+// ============= Centralized error handler ==============
+// Every controller forwards caught errors here via next(error) instead of
+// building its own response. The real error is logged server-side; the
+// client only ever gets a generic message — never a stack trace or
+// error.message, which could leak internal details (file paths, driver
+// errors, query shapes, etc.) to whoever's calling the API.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(err.status || 500).json({ message: 'Something went wrong' });
+});
 
 module.exports = app;
