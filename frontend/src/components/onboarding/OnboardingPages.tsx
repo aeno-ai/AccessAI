@@ -51,7 +51,7 @@ export function PersonalizePage({ width, selectedOption, onSelectOption }: Perso
       <MascotIcon />
       <Text style={[styles.title, styles.centerText]}>Tell us about yourself</Text>
       <Text style={[styles.subtitle, styles.centerText]}>
-        This helps us set up the right tools for you. You can update this later in Settings.
+        Optional — this helps us set up the right tools for you. You can skip it for now.
       </Text>
       <View style={styles.list}>
         {ACCESSIBILITY_OPTIONS.map((option) => (
@@ -73,9 +73,9 @@ export function GetStartedPage({ width }: PageProps) {
   return (
     <View style={[styles.page, styles.getStartedPage, { width }]}>
       <RocketIllustration />
-      <Text style={[styles.title, styles.centerText]}>Ready to{'\n'}Get Started?</Text>
+      <Text style={[styles.title, styles.centerText]}>You&apos;re{'\n'}All Set!</Text>
       <Text style={[styles.subtitle, styles.centerText]}>
-        Create an account and start using AI-powered accessibility tools.
+        Your account is ready. Start using AI-powered accessibility tools.
       </Text>
     </View>
   );

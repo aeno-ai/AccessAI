@@ -11,20 +11,32 @@ import {
 import { AppState, type AppStateStatus } from 'react-native';
 import { apiFetch } from '@/api/apiClient';
 import { onUnauthorized } from '@/utils/authEvents';
-import { isTokenExpired } from '@/utils/jwt';
+import { decodeJwtPayload, isTokenExpired } from '@/utils/jwt';
 import { hasCompletedOnboarding, markOnboardingComplete } from '@/utils/onboardingStorage';
 import { clearToken, getToken, setToken } from '@/utils/tokenStorage';
+
+export type UserRole = 'pwd' | 'non_pwd';
 
 type BootstrapContextValue = {
   ready: boolean;
   isLoggedIn: boolean;
   hasOnboarded: boolean;
+  role: UserRole | null;
   signIn: (token: string) => Promise<void>;
   signOut: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
 };
 
 const BootstrapContext = createContext<BootstrapContextValue | null>(null);
+
+/**
+ * The account type is baked into the token by the backend, so it can be read
+ * straight from the stored token — no network call, works offline.
+ */
+function roleFromToken(token: string | null): UserRole | null {
+  const role = decodeJwtPayload(token)?.role;
+  return role === 'pwd' || role === 'non_pwd' ? role : null;
+}
 
 /**
  * Determines whether a stored token represents a still-valid session, and
@@ -76,6 +88,7 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [hasOnboarded, setHasOnboarded] = useState(false);
+  const [role, setRole] = useState<UserRole | null>(null);
   const appStateRef = useRef(AppState.currentState);
 
   useEffect(() => {
@@ -88,6 +101,7 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
         return;
       }
       setIsLoggedIn(valid);
+      setRole(valid ? roleFromToken(token) : null);
       setHasOnboarded(onboarded);
       setReady(true);
     }
@@ -100,12 +114,14 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (token: string) => {
     await setToken(token);
+    setRole(roleFromToken(token));
     setIsLoggedIn(true);
   }, []);
 
   const signOut = useCallback(async () => {
     await clearToken();
     setIsLoggedIn(false);
+    setRole(null);
   }, []);
 
   const completeOnboarding = useCallback(async () => {
@@ -130,6 +146,9 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
         const token = await getToken();
         const valid = await resolveSession(token);
         setIsLoggedIn(valid);
+        if (!valid) {
+          setRole(null);
+        }
       })();
     });
 
@@ -145,11 +164,12 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
       ready,
       isLoggedIn,
       hasOnboarded,
+      role,
       signIn,
       signOut,
       completeOnboarding,
     }),
-    [ready, isLoggedIn, hasOnboarded, signIn, signOut, completeOnboarding],
+    [ready, isLoggedIn, hasOnboarded, role, signIn, signOut, completeOnboarding],
   );
 
   return <BootstrapContext.Provider value={value}>{children}</BootstrapContext.Provider>;

@@ -1,6 +1,5 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
-import { useRouter } from 'expo-router';
 import Animated, {
   useAnimatedReaction,
   useAnimatedScrollHandler,
@@ -16,35 +15,39 @@ import {
 } from '@/components/onboarding/OnboardingPages';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { colors, MaxContentWidth } from '@/constants/theme';
-import { useBootstrap } from '@/hooks/use-bootstrap';
+import { useBootstrap, type UserRole } from '@/hooks/use-bootstrap';
 import { saveAccessibilityPreference } from '@/utils/onboardingStorage';
-
-const PAGE_COUNT = 4;
 
 type OnboardingPage = { key: 'welcome' | 'features' | 'personalize' | 'get-started' };
 
-const pages: OnboardingPage[] = [
-  { key: 'welcome' },
-  { key: 'features' },
-  { key: 'personalize' },
-  { key: 'get-started' },
-];
+// The accessibility-needs page only makes sense for PWD accounts — non-PWD
+// users never see it.
+function pagesForRole(role: UserRole | null): OnboardingPage[] {
+  return [
+    { key: 'welcome' },
+    { key: 'features' },
+    ...(role === 'pwd' ? [{ key: 'personalize' } as const] : []),
+    { key: 'get-started' },
+  ];
+}
 
 export default function OnboardingPager() {
-  const router = useRouter();
-  const { completeOnboarding } = useBootstrap();
+  const { completeOnboarding, role } = useBootstrap();
+  const pages = useMemo(() => pagesForRole(role), [role]);
+  const pageCount = pages.length;
   const listRef = useRef<FlatList<OnboardingPage>>(null);
   const scrollX = useSharedValue(0);
   const [pagerWidth, setPagerWidth] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
 
+  // No navigation needed: once onboarding is marked complete, the root
+  // layout's guards switch this (already logged-in) user over to the app.
   const finishOnboarding = async () => {
     if (selectedOption) {
       await saveAccessibilityPreference(selectedOption);
     }
     await completeOnboarding();
-    router.replace('/login');
   };
 
   const onScroll = useAnimatedScrollHandler({
@@ -64,20 +67,20 @@ export default function OnboardingPager() {
     () => (pagerWidth > 0 ? Math.round(scrollX.value / pagerWidth) : 0),
     (page, previousPage) => {
       if (page !== previousPage) {
-        scheduleOnRN(setCurrentPage, Math.max(0, Math.min(page, PAGE_COUNT - 1)));
+        scheduleOnRN(setCurrentPage, Math.max(0, Math.min(page, pageCount - 1)));
       }
     },
-    [pagerWidth],
+    [pagerWidth, pageCount],
   );
 
   const goToPage = (page: number) => {
-    const nextPage = Math.max(0, Math.min(page, PAGE_COUNT - 1));
+    const nextPage = Math.max(0, Math.min(page, pageCount - 1));
     listRef.current?.scrollToIndex({ index: nextPage, animated: true });
     setCurrentPage(nextPage);
   };
 
   const handleNext = () => {
-    if (currentPage === PAGE_COUNT - 1) {
+    if (currentPage === pageCount - 1) {
       void finishOnboarding();
       return;
     }
@@ -105,8 +108,8 @@ export default function OnboardingPager() {
     }
   };
 
-  const nextDisabled = currentPage === 2 && !selectedOption;
-  const nextLabel = currentPage === PAGE_COUNT - 1 ? "Let's Begin" : 'Next';
+  // Personalization is optional, so Next is never disabled.
+  const nextLabel = currentPage === pageCount - 1 ? "Let's Begin" : 'Next';
 
   return (
     <ScreenShell maxWidth={MaxContentWidth.onboarding}>
@@ -144,13 +147,12 @@ export default function OnboardingPager() {
       </View>
       <OnboardingFooter
         currentStep={currentPage}
-        totalSteps={PAGE_COUNT}
+        totalSteps={pageCount}
         pageWidth={pagerWidth}
         scrollX={scrollX}
         onSkip={() => void finishOnboarding()}
         onNext={handleNext}
         nextLabel={nextLabel}
-        nextDisabled={nextDisabled}
       />
     </ScreenShell>
   );

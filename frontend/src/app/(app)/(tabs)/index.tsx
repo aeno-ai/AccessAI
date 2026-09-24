@@ -8,12 +8,15 @@ import { SosBanner } from '@/components/dashboard/SosBanner';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { DASHBOARD_FEATURES } from '@/constants/dashboard';
+import { useBootstrap } from '@/hooks/use-bootstrap';
 
 function openConversation() {
   router.push('/conversation');
 }
 
 export default function HomeScreen() {
+  const { role } = useBootstrap();
+
   return (
     <ScreenShell maxWidth={MaxContentWidth.app}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -66,7 +69,10 @@ export default function HomeScreen() {
           ))}
         </View>
 
-        <SosBanner />
+        {/* SOS is for PWD accounts only (the backend refuses it for non-PWD
+            too). Hidden only when the role is known to be non-PWD: if it's
+            ever unknown, an emergency button shouldn't silently vanish. */}
+        {role !== 'non_pwd' ? <SosBanner /> : null}
 
         <TouchableOpacity
           style={styles.aiBanner}

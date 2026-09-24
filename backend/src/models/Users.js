@@ -14,15 +14,27 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     trim: true,
     match: [EMAIL_REGEX, 'Invalid email address'],
-    maxlength: 254,
+    maxlength: 30,
   },
   password: { type: String, required: true },
-  name: { type: String, required: true, trim: true, maxlength: 100 },
+  // Collected separately at sign-up. Not `required` here: accounts created
+  // before these fields existed don't have them, and a required field would
+  // make every later save of those accounts fail (e.g. an admin
+  // deactivating one). The register validator is what requires them.
+  firstName: { type: String, trim: true, maxlength: 30 },
+  lastName: { type: String, trim: true, maxlength: 30 },
+  // The full name ("First Last"), kept for older accounts and for the admin
+  // panel's list and search. 61 = 30 + a space + 30.
+  name: { type: String, required: true, trim: true, maxlength: 61 },
   role: {
     type: String,
     enum: ['pwd', 'non_pwd'],
     required: true,
   },
+  // Admins can deactivate an account from the web panel. Accounts created
+  // before this field existed don't have it at all, so queries treat
+  // "missing" as active: { isActive: { $ne: false } }.
+  isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

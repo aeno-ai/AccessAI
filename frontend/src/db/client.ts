@@ -26,6 +26,14 @@ async function migrate(db: SQLiteDatabase) {
       created_at INTEGER NOT NULL,
       FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE
     );
+
+    -- Conversations deleted on this device whose cloud copy still needs
+    -- deleting. Kept until the server confirms, so a delete made offline is
+    -- sent on the next sync (see sync.ts).
+    CREATE TABLE IF NOT EXISTS pending_deletions (
+      conversation_id TEXT PRIMARY KEY NOT NULL,
+      deleted_at INTEGER NOT NULL
+    );
   `);
 }
 

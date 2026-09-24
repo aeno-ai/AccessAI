@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -10,9 +10,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { MessageBubble } from '@/components/conversation/MessageBubble';
+import { RenameConversationModal } from '@/components/conversation/RenameConversationModal';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import {
@@ -20,13 +21,18 @@ import {
   createConversation,
   getConversation,
   getMessages,
+  renameConversation,
   type Message,
 } from '@/db/conversations';
 import { syncConversations } from '@/db/sync';
+import { unnamedConversationTitle } from '@/utils/conversationTitle';
+import { stopMixed } from '@/utils/speechHelper';
 
 type Speaker = Message['sender'];
 
-const DEFAULT_TITLE = 'New Conversation';
+// Header text while a new conversation is still being named. Never saved as
+// a title — unnamed conversations get unnamedConversationTitle() instead.
+const NEW_CONVERSATION_HEADER = 'New Conversation';
 
 /**
  * The one real conversation screen every dashboard entry point leads to —
@@ -37,36 +43,74 @@ const DEFAULT_TITLE = 'New Conversation';
  * side, every message can be read aloud, and sign-language mode is a
  * visible toggle rather than a separate screen.
  *
- * Opened with no params, this starts a brand new conversation and asks the
- * user to name it first ("which conversation is this?"). Opened with an
- * `id` param (from History), it loads and continues that existing
- * conversation instead, skipping the naming step.
+ * Opened with no params (the greeting card / AI banner), this resumes
+ * whatever conversation was last on screen — this is a drawer screen, so it
+ * stays mounted between visits — or, the first time, starts a brand new one
+ * and asks the user to name it ("which conversation is this?"). Opened with
+ * an `id` param (from History), it loads and continues that conversation,
+ * skipping the naming step. The chat-bubble "+" in the header starts a new
+ * conversation from inside this one.
  *
  * STT and sign-language recognition are simulated for now (see the plan);
  * TTS is real, via expo-speech.
  */
 export default function ConversationScreen() {
-  const { id: routeId } = useLocalSearchParams<{ id?: string }>();
+  // `opened` changes on every tap in History, so the same conversation is
+  // reloaded even if it's the one already on screen.
+  const { id: routeId, opened } = useLocalSearchParams<{ id?: string; opened?: string }>();
   const listRef = useRef<FlatList<Message>>(null);
 
-  const [conversationId, setConversationId] = useState<string | null>(routeId ?? null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  // Same value as conversationId, but readable from async callbacks without
+  // going stale (see the focus check below).
+  const conversationIdRef = useRef<string | null>(null);
+  // Bumped whenever the screen switches conversations, so an in-flight send
+  // can tell its results no longer belong on screen.
+  const sessionRef = useRef(0);
   const [conversationTitle, setConversationTitle] = useState('');
-  const [namingDone, setNamingDone] = useState(!!routeId);
+  const [namingDone, setNamingDone] = useState(false);
   const [nameInput, setNameInput] = useState('');
-  const [loadingExisting, setLoadingExisting] = useState(!!routeId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [composeText, setComposeText] = useState('');
   const [activeSpeaker, setActiveSpeaker] = useState<Speaker>('me');
   const [listening, setListening] = useState(false);
   const [signMode, setSignMode] = useState(false);
+  const [renaming, setRenaming] = useState(false);
 
-  // Continuing an existing conversation (opened from History): load its
-  // saved title and messages once, on mount.
+  // Which History tap has finished loading. Still loading = the current
+  // tap hasn't been answered yet.
+  const openKey = routeId ? `${routeId}:${opened ?? ''}` : null;
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const loadingExisting = openKey !== null && loadedKey !== openKey;
+
+  // Puts the screen back to a fresh, unnamed conversation. Whatever was on
+  // screen is already saved — every message is written when it's sent.
+  const startNewConversation = useCallback(() => {
+    stopMixed();
+    sessionRef.current += 1;
+    conversationIdRef.current = null;
+    setConversationId(null);
+    setConversationTitle('');
+    setNamingDone(false);
+    setNameInput('');
+    setMessages([]);
+    setComposeText('');
+    setActiveSpeaker('me');
+    setListening(false);
+    setSignMode(false);
+  }, []);
+
+  // Opened from History: load that conversation's title and messages.
   useEffect(() => {
     if (!routeId) {
       return;
     }
     let cancelled = false;
+    stopMixed();
+    sessionRef.current += 1;
+    // Claimed right away, so the focus check below can't mistake this
+    // conversation for the one that was on screen before.
+    conversationIdRef.current = routeId;
     (async () => {
       const [conversation, existingMessages] = await Promise.all([
         getConversation(routeId),
@@ -75,18 +119,65 @@ export default function ConversationScreen() {
       if (cancelled) {
         return;
       }
-      setConversationTitle(conversation?.title ?? DEFAULT_TITLE);
-      setMessages(existingMessages);
-      setLoadingExisting(false);
+      if (!conversation) {
+        startNewConversation(); // deleted in the meantime
+      } else {
+        setConversationId(routeId);
+        setConversationTitle(conversation.title);
+        setMessages(existingMessages);
+        setNamingDone(true);
+        setComposeText('');
+      }
+      setLoadedKey(openKey);
     })();
     return () => {
       cancelled = true;
     };
-  }, [routeId]);
+  }, [routeId, openKey, startNewConversation]);
+
+  // Resuming (greeting card / AI banner) must never bring back a
+  // conversation that was deleted in History while this screen was hidden,
+  // and should show the new name if it was renamed there. Only acts if that
+  // same conversation is still the one on screen — a History tap may have
+  // switched it in the meantime.
+  useFocusEffect(
+    useCallback(() => {
+      const shownId = conversationIdRef.current;
+      if (!shownId) {
+        return;
+      }
+      let cancelled = false;
+      void getConversation(shownId).then((conversation) => {
+        if (cancelled || conversationIdRef.current !== shownId) {
+          return;
+        }
+        if (!conversation) {
+          startNewConversation();
+        } else {
+          setConversationTitle(conversation.title);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [startNewConversation]),
+  );
 
   const confirmName = (title: string) => {
-    setConversationTitle(title.trim() || DEFAULT_TITLE);
+    setConversationTitle(title.trim() || unnamedConversationTitle());
     setNamingDone(true);
+  };
+
+  // A conversation with no messages yet isn't saved anywhere — the new name
+  // is just used when the first message creates it.
+  const handleRename = async (title: string) => {
+    setRenaming(false);
+    setConversationTitle(title);
+    const id = conversationIdRef.current;
+    if (id) {
+      await renameConversation(id, title);
+      void syncConversations();
+    }
   };
 
   const handleSend = async () => {
@@ -94,29 +185,39 @@ export default function ConversationScreen() {
     if (!body) {
       return;
     }
+    const session = sessionRef.current;
 
     let id = conversationId;
     if (!id) {
       // Only create the conversation record once there's an actual message
       // to save — avoids History filling up with empty entries from people
       // who just looked at the screen.
-      const conversation = await createConversation(conversationTitle || DEFAULT_TITLE, 'combined');
+      const conversation = await createConversation(
+        conversationTitle || unnamedConversationTitle(),
+        'combined',
+      );
       id = conversation.id;
-      setConversationId(id);
+      if (sessionRef.current === session) {
+        conversationIdRef.current = id;
+        setConversationId(id);
+      }
     }
 
     await addMessage(id, activeSpeaker, body);
-    const updated = await getMessages(id);
-    setMessages(updated);
-    setComposeText('');
-    setListening(false);
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
     // Best-effort, non-blocking — if offline this just fails silently and
     // the next sync trigger (reconnect, or opening History) picks it up.
     void syncConversations();
+
+    if (sessionRef.current !== session) {
+      return; // the user switched conversations mid-send; the message is saved where it belongs
+    }
+    setMessages(await getMessages(id));
+    setComposeText('');
+    setListening(false);
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   };
 
-  const showNamingPrompt = !routeId && !namingDone;
+  const showNamingPrompt = !namingDone;
 
   return (
     <ScreenShell maxWidth={MaxContentWidth.app}>
@@ -127,6 +228,7 @@ export default function ConversationScreen() {
       >
         <View style={styles.header}>
           <TouchableOpacity
+            style={styles.headerSide}
             onPress={() => router.back()}
             accessibilityRole="button"
             accessibilityLabel="Go back"
@@ -134,10 +236,47 @@ export default function ConversationScreen() {
           >
             <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {namingDone || routeId ? conversationTitle || DEFAULT_TITLE : DEFAULT_TITLE}
-          </Text>
-          <View style={styles.headerSpacer} />
+          {namingDone && !loadingExisting ? (
+            // Tap the title to rename the conversation.
+            <TouchableOpacity
+              style={styles.headerTitleButton}
+              onPress={() => setRenaming(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Rename conversation: ${conversationTitle}`}
+              hitSlop={8}
+            >
+              <Text style={styles.headerTitleText} numberOfLines={1}>
+                {conversationTitle}
+              </Text>
+              <Ionicons name="create-outline" size={15} color={colors.textSecondary} />
+            </TouchableOpacity>
+          ) : (
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {NEW_CONVERSATION_HEADER}
+            </Text>
+          )}
+          {/* Hidden while naming/loading — there's no conversation to leave yet. */}
+          {namingDone && !loadingExisting ? (
+            <TouchableOpacity
+              style={[styles.headerSide, styles.headerSideRight]}
+              onPress={startNewConversation}
+              accessibilityRole="button"
+              accessibilityLabel="Start a new conversation"
+              hitSlop={8}
+            >
+              <View style={styles.newConversationIcon}>
+                <Ionicons name="chatbubble-outline" size={24} color={colors.textPrimary} />
+                <Ionicons
+                  name="add"
+                  size={14}
+                  color={colors.textPrimary}
+                  style={styles.newConversationPlus}
+                />
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerSide} />
+          )}
         </View>
 
         {loadingExisting ? (
@@ -158,6 +297,7 @@ export default function ConversationScreen() {
               onChangeText={setNameInput}
               placeholder="e.g. Ate Lyka, Dagupan trip"
               placeholderTextColor={colors.textMuted}
+              maxLength={100}
               autoFocus
               returnKeyType="done"
               onSubmitEditing={() => confirmName(nameInput)}
@@ -165,7 +305,7 @@ export default function ConversationScreen() {
             <View style={styles.namingActions}>
               <TouchableOpacity
                 style={styles.namingSkip}
-                onPress={() => confirmName(DEFAULT_TITLE)}
+                onPress={() => confirmName('')}
                 accessibilityRole="button"
               >
                 <Text style={styles.namingSkipText}>Skip</Text>
@@ -290,6 +430,13 @@ export default function ConversationScreen() {
           </>
         )}
       </KeyboardAvoidingView>
+
+      <RenameConversationModal
+        visible={renaming}
+        initialTitle={conversationTitle}
+        onCancel={() => setRenaming(false)}
+        onSave={(title) => void handleRename(title)}
+      />
     </ScreenShell>
   );
 }
@@ -314,8 +461,37 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     textAlign: 'center',
   },
-  headerSpacer: {
-    width: 22,
+  headerTitleButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginHorizontal: 12,
+  },
+  headerTitleText: {
+    flexShrink: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  // Same width on both sides, so the title stays centered whether or not
+  // the new-conversation button is showing.
+  headerSide: {
+    width: 32,
+    justifyContent: 'center',
+  },
+  headerSideRight: {
+    alignItems: 'flex-end',
+  },
+  newConversationIcon: {
+    width: 24,
+    height: 24,
+  },
+  newConversationPlus: {
+    position: 'absolute',
+    top: 4,
+    left: 5,
   },
   emptyState: {
     flex: 1,

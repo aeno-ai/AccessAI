@@ -79,16 +79,40 @@ export async function getConversation(id: string): Promise<Conversation | null> 
 }
 
 /**
- * Deletes a conversation and its messages. Messages are deleted explicitly,
- * first, rather than relying solely on the table's `ON DELETE CASCADE` —
- * SQLite only enforces foreign keys when a session has turned that on (see
- * `PRAGMA foreign_keys = ON` in client.ts), so this stays correct even if
- * that pragma isn't honored for some reason.
+ * Deletes a conversation and its messages, and queues the deletion of its
+ * cloud copy (sent by `syncConversations` whenever the device is online).
+ * Messages are deleted explicitly, first, rather than relying solely on the
+ * table's `ON DELETE CASCADE` — SQLite only enforces foreign keys when a
+ * session has turned that on (see `PRAGMA foreign_keys = ON` in client.ts),
+ * so this stays correct even if that pragma isn't honored for some reason.
+ *
+ * The cloud deletion is queued even if this conversation never synced: a
+ * sync could be mid-upload right now, and the server treats deleting
+ * something it doesn't have as a no-op anyway.
  */
 export async function deleteConversation(id: string): Promise<void> {
   const db = await getDatabase();
-  await db.runAsync('DELETE FROM messages WHERE conversation_id = ?', [id]);
-  await db.runAsync('DELETE FROM conversations WHERE id = ?', [id]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM messages WHERE conversation_id = ?', [id]);
+    await db.runAsync('DELETE FROM conversations WHERE id = ?', [id]);
+    await db.runAsync(
+      'INSERT OR REPLACE INTO pending_deletions (conversation_id, deleted_at) VALUES (?, ?)',
+      [id, Date.now()],
+    );
+  });
+}
+
+export async function listPendingDeletions(): Promise<string[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{ conversation_id: string }>(
+    'SELECT conversation_id FROM pending_deletions ORDER BY deleted_at ASC',
+  );
+  return rows.map((row) => row.conversation_id);
+}
+
+export async function clearPendingDeletion(conversationId: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM pending_deletions WHERE conversation_id = ?', [conversationId]);
 }
 
 export async function getMessages(conversationId: string): Promise<Message[]> {
@@ -109,6 +133,17 @@ export async function createConversation(title: string, mode: string): Promise<C
     [id, title, mode, now, now],
   );
   return { id, title, mode, createdAt: now, updatedAt: now, syncedAt: null };
+}
+
+/**
+ * Renames a conversation. `updated_at` is deliberately left alone — History
+ * is ordered by last activity, and a rename shouldn't make a conversation
+ * jump to the top. Clearing `synced_at` instead is what makes the next sync
+ * upload the new title (see the pending filter in sync.ts).
+ */
+export async function renameConversation(id: string, title: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('UPDATE conversations SET title = ?, synced_at = NULL WHERE id = ?', [title, id]);
 }
 
 export async function markConversationSynced(conversationId: string, syncedAt: number): Promise<void> {

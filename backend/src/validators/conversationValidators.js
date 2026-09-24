@@ -1,4 +1,4 @@
-const { body } = require('express-validator');
+const { body, param } = require('express-validator');
 
 const syncConversationValidators = [
   body('clientId').isString().trim().notEmpty().withMessage('clientId is required').isLength({ max: 100 }),
@@ -21,4 +21,8 @@ const syncConversationValidators = [
   body('messages.*.createdAt').isInt({ min: 0 }).withMessage('message createdAt must be a timestamp'),
 ];
 
-module.exports = { syncConversationValidators };
+const conversationClientIdValidators = [
+  param('clientId').isString().trim().notEmpty().withMessage('clientId is required').isLength({ max: 100 }),
+];
+
+module.exports = { syncConversationValidators, conversationClientIdValidators };

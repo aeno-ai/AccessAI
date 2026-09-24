@@ -17,4 +17,15 @@ const generalLimiter = rateLimit({
   message: 'Too many requests from this IP, please try again later',
 });
 
-module.exports = { authLimiter, generalLimiter };
+// Admin login only. Successful logins don't count toward the limit, so a
+// real admin logging in and out a few times never locks themselves out —
+// only failed guesses add up. This is per IP; the per-account lockout in
+// adminAuthController covers attackers who rotate IPs.
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  skipSuccessfulRequests: true,
+  message: { message: 'Too many login attempts. Please try again after 15 minutes.' },
+});
+
+module.exports = { authLimiter, generalLimiter, adminLoginLimiter };

@@ -15,9 +15,16 @@ import { AppLogo } from '@/components/onboarding/Illustrations';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { colors, MaxContentWidth } from '@/constants/theme';
 import { apiFetch } from '@/api/apiClient';
+import { useBootstrap } from '@/hooks/use-bootstrap';
+
+type RegisterResponse = {
+  token: string;
+};
 
 export default function RegisterScreen() {
-  const [name, setName] = useState('');
+  const { signIn } = useBootstrap();
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -33,11 +40,20 @@ export default function RegisterScreen() {
     }
     setLoading(true);
     try {
-      await apiFetch('/auth/register', {
+      const data = await apiFetch<RegisterResponse>('/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ name, email, password, role }),
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email,
+          password,
+          role,
+        }),
       });
-      router.replace('/login');
+      // Logs the new user straight in. The root layout's guards then take
+      // them into onboarding (or the dashboard, if this device has already
+      // been through it) — no second password entry needed.
+      await signIn(data.token);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Registration failed');
     } finally {
@@ -58,7 +74,27 @@ export default function RegisterScreen() {
             <Text style={styles.subtitle}>Sign up to get started</Text>
           </View>
 
-          <AuthInput label="Full Name" placeholder="Enter your full name" value={name} onChangeText={setName} />
+          {/* 30 characters each — the same limit the backend enforces. */}
+          <AuthInput
+            label="First Name"
+            placeholder="Enter your first name"
+            value={firstName}
+            onChangeText={setFirstName}
+            autoCapitalize="words"
+            autoComplete="given-name"
+            textContentType="givenName"
+            maxLength={30}
+          />
+          <AuthInput
+            label="Last Name"
+            placeholder="Enter your last name"
+            value={lastName}
+            onChangeText={setLastName}
+            autoCapitalize="words"
+            autoComplete="family-name"
+            textContentType="familyName"
+            maxLength={30}
+          />
           <AuthInput
             label="Email Address"
             placeholder="Enter your email"
@@ -106,7 +142,7 @@ export default function RegisterScreen() {
             title="Create Account"
             onPress={() => void handleRegister()}
             loading={loading}
-            disabled={!name || !email || !password}
+            disabled={!firstName.trim() || !lastName.trim() || !email || !password}
           />
 
           <TouchableOpacity onPress={() => router.push('/login')} style={styles.linkWrap}>

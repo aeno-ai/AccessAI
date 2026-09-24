@@ -39,15 +39,18 @@ function RootNavigator() {
     return <BootstrapLoader />;
   }
 
+  // Logged out → login/register. Logged in on a device that has never
+  // finished onboarding (a brand-new sign-up, or an existing user on a new
+  // or reset phone) → onboarding, once. Otherwise → the app.
   return (
     <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
-      <Stack.Protected guard={isLoggedIn}>
+      <Stack.Protected guard={isLoggedIn && hasOnboarded}>
         <Stack.Screen name="(app)" />
       </Stack.Protected>
-      <Stack.Protected guard={!isLoggedIn && !hasOnboarded}>
+      <Stack.Protected guard={isLoggedIn && !hasOnboarded}>
         <Stack.Screen name="onboarding" />
       </Stack.Protected>
-      <Stack.Protected guard={!isLoggedIn && hasOnboarded}>
+      <Stack.Protected guard={!isLoggedIn}>
         <Stack.Screen name="(auth)" />
       </Stack.Protected>
     </Stack>

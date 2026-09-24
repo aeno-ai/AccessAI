@@ -38,4 +38,30 @@ const syncConversation = async (req, res, next) => {
   }
 };
 
-module.exports = { syncConversation };
+/**
+ * Deletes one of the caller's synced conversations, and its messages, by the
+ * `clientId` the phone generated. The phone deletes locally first and sends
+ * this whenever it's next online, so the request can arrive late, twice, or
+ * for a conversation that never finished syncing — none of those are
+ * errors. The response always succeeds and just says whether anything was
+ * there to delete.
+ */
+const deleteConversation = async (req, res, next) => {
+  try {
+    const conversation = await Conversation.findOne({
+      userId: req.user.userId,
+      clientId: req.params.clientId,
+    });
+
+    if (conversation) {
+      await Message.deleteMany({ conversationId: conversation._id });
+      await conversation.deleteOne();
+    }
+
+    res.status(200).json({ deleted: Boolean(conversation) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { syncConversation, deleteConversation };

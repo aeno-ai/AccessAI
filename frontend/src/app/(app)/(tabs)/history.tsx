@@ -2,11 +2,13 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { RenameConversationModal } from '@/components/conversation/RenameConversationModal';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import {
   deleteConversation,
   listConversations,
+  renameConversation,
   seedDummyDataIfEmpty,
   type Conversation,
 } from '@/db/conversations';
@@ -23,6 +25,7 @@ function formatTimestamp(ms: number): string {
 
 export default function HistoryScreen() {
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
+  const [renaming, setRenaming] = useState<Conversation | null>(null);
 
   // Reload every time this tab gains focus, so a conversation created
   // elsewhere shows up without needing a manual refresh.
@@ -58,11 +61,22 @@ export default function HistoryScreen() {
             void (async () => {
               await deleteConversation(conversation.id);
               setConversations(await listConversations());
+              // Deletes the cloud copy right away if online; otherwise the
+              // deletion stays queued for the next sync.
+              void syncConversations();
             })();
           },
         },
       ],
     );
+  };
+
+  const handleRename = async (conversation: Conversation, title: string) => {
+    setRenaming(null);
+    await renameConversation(conversation.id, title);
+    setConversations(await listConversations());
+    // Uploads the new title right away if online; otherwise on the next sync.
+    void syncConversations();
   };
 
   return (
@@ -91,7 +105,11 @@ export default function HistoryScreen() {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.row}
-              onPress={() => router.push({ pathname: '/conversation', params: { id: item.id } })}
+              onPress={() =>
+                // `opened` differs on every tap, so the conversation screen
+                // reloads this conversation even if it was the last one open.
+                router.push({ pathname: '/conversation', params: { id: item.id, opened: String(Date.now()) } })
+              }
               accessibilityRole="button"
               accessibilityLabel={`Continue conversation: ${item.title}`}
             >
@@ -108,9 +126,18 @@ export default function HistoryScreen() {
                 </View>
               ) : null}
               <TouchableOpacity
+                onPress={() => setRenaming(item)}
+                hitSlop={8}
+                style={styles.rowAction}
+                accessibilityRole="button"
+                accessibilityLabel={`Rename conversation: ${item.title}`}
+              >
+                <Ionicons name="create-outline" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+              <TouchableOpacity
                 onPress={() => handleDelete(item)}
                 hitSlop={8}
-                style={styles.deleteButton}
+                style={styles.rowAction}
                 accessibilityRole="button"
                 accessibilityLabel={`Delete conversation: ${item.title}`}
               >
@@ -120,6 +147,17 @@ export default function HistoryScreen() {
           )}
         />
       )}
+
+      <RenameConversationModal
+        visible={renaming !== null}
+        initialTitle={renaming?.title ?? ''}
+        onCancel={() => setRenaming(null)}
+        onSave={(title) => {
+          if (renaming) {
+            void handleRename(renaming, title);
+          }
+        }}
+      />
     </ScreenShell>
   );
 }
@@ -197,7 +235,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textMuted,
   },
-  deleteButton: {
+  rowAction: {
     marginLeft: 10,
     padding: 4,
   },
