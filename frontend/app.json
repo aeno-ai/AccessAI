@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "PDAccessAI",
+    "name": "AccessAI",
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,7 +8,11 @@
     "scheme": "frontend",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow PDAccessAI to turn what's said in a conversation, and your voice commands to Accel, into text.",
+        "NSMicrophoneUsageDescription": "Allow PDAccessAI to use the microphone to turn what's said in a conversation, and your voice commands to Accel, into text."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -17,7 +21,13 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.aeno.frontend"
     },
     "web": {
       "output": "static",
@@ -40,11 +50,43 @@
         {
           "locationWhenInUsePermission": "Allow PDAccessAI to use your location so it can be included when you send an SOS alert."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow PDAccessAI to use the camera to scan a friend's QR code and to recognize sign language.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#208AEF",
+          "defaultChannel": "chat_messages"
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow PDAccessAI to use the microphone to turn what's said in a conversation, and your voice commands to Accel, into text.",
+          "speechRecognitionPermission": "Allow PDAccessAI to turn what's said in a conversation, and your voice commands to Accel, into text.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.as"
+          ]
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "cf7458b4-17c3-4fb7-91cd-295b867dd7a5"
+      }
     }
   }
 }

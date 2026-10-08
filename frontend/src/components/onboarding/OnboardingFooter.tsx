@@ -6,7 +6,7 @@ import Animated, {
   type SharedValue,
   useAnimatedStyle,
 } from 'react-native-reanimated';
-import { colors } from '@/constants/theme';
+import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 
 type OnboardingFooterProps = {
   currentStep: number;
@@ -28,6 +28,9 @@ function Dot({
   pageWidth: number;
   scrollX: SharedValue<number>;
 }) {
+  const { colors } = useAppTheme();
+  const styles = useThemedStyles(makeStyles);
+
   const animatedStyle = useAnimatedStyle(() => {
     const width = pageWidth || 1;
     const input = [(index - 1) * width, index * width, (index + 1) * width];
@@ -54,6 +57,8 @@ export default function OnboardingFooter({
   nextLabel = 'Next',
   nextDisabled = false,
 }: OnboardingFooterProps) {
+  const styles = useThemedStyles(makeStyles);
+
   return (
     <View style={styles.footer}>
       <TouchableOpacity onPress={onSkip} hitSlop={8} accessibilityRole="button">
@@ -78,45 +83,46 @@ export default function OnboardingFooter({
   );
 }
 
-const styles = StyleSheet.create({
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingBottom: 16,
-    paddingTop: 8,
-  },
-  skipText: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    fontWeight: '600',
-    minWidth: 40,
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  dot: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.border,
-  },
-  nextButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 22,
-    borderRadius: 24,
-    minWidth: 108,
-    alignItems: 'center',
-  },
-  nextButtonDisabled: {
-    backgroundColor: colors.border,
-  },
-  nextText: {
-    color: colors.white,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-});
+const makeStyles = (t: AppTheme) =>
+  StyleSheet.create({
+    footer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 24,
+      paddingBottom: 16,
+      paddingTop: 8,
+    },
+    skipText: {
+      color: t.colors.textSecondary,
+      fontSize: t.font(15),
+      fontWeight: t.weight('600'),
+      minWidth: 40,
+    },
+    dotsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    dot: {
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: t.colors.border,
+    },
+    nextButton: {
+      backgroundColor: t.colors.primary,
+      paddingVertical: 12,
+      paddingHorizontal: 22,
+      borderRadius: 24,
+      minWidth: 108,
+      alignItems: 'center',
+    },
+    nextButtonDisabled: {
+      backgroundColor: t.colors.border,
+    },
+    nextText: {
+      color: t.colors.onPrimary,
+      fontSize: t.font(15),
+      fontWeight: t.weight('700'),
+    },
+  });

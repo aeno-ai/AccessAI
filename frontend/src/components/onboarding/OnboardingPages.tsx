@@ -1,18 +1,21 @@
 import { Text, StyleSheet, View } from 'react-native';
-import { colors } from '@/constants/theme';
+
 import { ACCESSIBILITY_OPTIONS, FEATURES } from '@/constants/onboarding';
 import FeatureCard from '@/components/onboarding/FeatureCard';
 import SelectableOptionCard from '@/components/onboarding/SelectableOptionCard';
 import { MascotIcon, RocketIllustration, WelcomeIllustration } from '@/components/onboarding/Illustrations';
+import { useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 
 type PageProps = {
   width: number;
 };
 
 export function WelcomePage({ width }: PageProps) {
+  const styles = useThemedStyles(makeStyles);
+
   return (
     <View style={[styles.page, { width }]}>
-      <Text style={styles.title}>Welcome to{'\n'}PDAccessAI</Text>
+      <Text style={styles.title}>Welcome to{'\n'}AccessAI</Text>
       <Text style={styles.subtitle}>
         Breaking communication barriers with AI-powered accessibility tools.
       </Text>
@@ -22,6 +25,8 @@ export function WelcomePage({ width }: PageProps) {
 }
 
 export function FeaturesPage({ width }: PageProps) {
+  const styles = useThemedStyles(makeStyles);
+
   return (
     <View style={[styles.page, { width }]}>
       <Text style={styles.title}>Powerful{'\n'}AI Features</Text>
@@ -46,6 +51,8 @@ type PersonalizePageProps = PageProps & {
 };
 
 export function PersonalizePage({ width, selectedOption, onSelectOption }: PersonalizePageProps) {
+  const styles = useThemedStyles(makeStyles);
+
   return (
     <View style={[styles.page, styles.centeredPage, { width }]}>
       <MascotIcon />
@@ -70,6 +77,8 @@ export function PersonalizePage({ width, selectedOption, onSelectOption }: Perso
 }
 
 export function GetStartedPage({ width }: PageProps) {
+  const styles = useThemedStyles(makeStyles);
+
   return (
     <View style={[styles.page, styles.getStartedPage, { width }]}>
       <RocketIllustration />
@@ -81,37 +90,38 @@ export function GetStartedPage({ width }: PageProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 28,
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    letterSpacing: -0.4,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: colors.textSecondary,
-    marginTop: 12,
-    lineHeight: 22,
-  },
-  list: {
-    marginTop: 20,
-    width: '100%',
-  },
-  centeredPage: {
-    alignItems: 'center',
-  },
-  getStartedPage: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 24,
-  },
-  centerText: {
-    textAlign: 'center',
-  },
-});
+const makeStyles = (t: AppTheme) =>
+  StyleSheet.create({
+    page: {
+      flex: 1,
+      paddingHorizontal: 24,
+      paddingTop: 28,
+    },
+    title: {
+      fontSize: t.font(30),
+      fontWeight: t.weight('800'),
+      color: t.colors.textPrimary,
+      letterSpacing: -0.4,
+    },
+    subtitle: {
+      fontSize: t.font(15),
+      color: t.colors.textSecondary,
+      marginTop: 12,
+      lineHeight: t.lineHeight(22),
+    },
+    list: {
+      marginTop: 20,
+      width: '100%',
+    },
+    centeredPage: {
+      alignItems: 'center',
+    },
+    getStartedPage: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingBottom: 24,
+    },
+    centerText: {
+      textAlign: 'center',
+    },
+  });

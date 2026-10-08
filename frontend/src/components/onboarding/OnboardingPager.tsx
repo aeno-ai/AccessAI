@@ -14,9 +14,12 @@ import {
   WelcomePage,
 } from '@/components/onboarding/OnboardingPages';
 import { ScreenShell } from '@/components/ui/ScreenShell';
-import { colors, MaxContentWidth } from '@/constants/theme';
+import { MaxContentWidth } from '@/constants/theme';
 import { useBootstrap, type UserRole } from '@/hooks/use-bootstrap';
+import { usePreferences } from '@/hooks/use-preferences';
+import { toProfile } from '@/constants/profiles';
 import { saveAccessibilityPreference } from '@/utils/onboardingStorage';
+import { useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 
 type OnboardingPage = { key: 'welcome' | 'features' | 'personalize' | 'get-started' };
 
@@ -32,7 +35,10 @@ function pagesForRole(role: UserRole | null): OnboardingPage[] {
 }
 
 export default function OnboardingPager() {
+  const styles = useThemedStyles(makeStyles);
+
   const { completeOnboarding, role } = useBootstrap();
+  const { applyProfile } = usePreferences();
   const pages = useMemo(() => pagesForRole(role), [role]);
   const pageCount = pages.length;
   const listRef = useRef<FlatList<OnboardingPage>>(null);
@@ -46,6 +52,9 @@ export default function OnboardingPager() {
   const finishOnboarding = async () => {
     if (selectedOption) {
       await saveAccessibilityPreference(selectedOption);
+      // Text size, colors, reading aloud… set up for what they picked. All
+      // of it can be changed later in Settings.
+      applyProfile(toProfile(selectedOption));
     }
     await completeOnboarding();
   };
@@ -158,12 +167,13 @@ export default function OnboardingPager() {
   );
 }
 
-const styles = StyleSheet.create({
-  pager: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  list: {
-    flex: 1,
-  },
-});
+const makeStyles = (t: AppTheme) =>
+  StyleSheet.create({
+    pager: {
+      flex: 1,
+      backgroundColor: t.colors.background,
+    },
+    list: {
+      flex: 1,
+    },
+  });

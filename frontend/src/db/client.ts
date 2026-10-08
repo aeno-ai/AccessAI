@@ -34,6 +34,50 @@ async function migrate(db: SQLiteDatabase) {
       conversation_id TEXT PRIMARY KEY NOT NULL,
       deleted_at INTEGER NOT NULL
     );
+
+    -- The signed-in account's friends, as last seen from the server, so the
+    -- Friends tab works offline (see friends.ts). Cleared on sign-out.
+    CREATE TABLE IF NOT EXISTS friends (
+      user_id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      first_name TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      in_my_sos INTEGER NOT NULL DEFAULT 0,
+      in_their_sos INTEGER NOT NULL DEFAULT 0,
+      online INTEGER NOT NULL DEFAULT 0,
+      unread INTEGER NOT NULL DEFAULT 0,
+      last_body TEXT,
+      last_kind TEXT,
+      last_from_me INTEGER,
+      last_at INTEGER
+    );
+
+    -- Online chats with friends (see directMessages.ts). Messages written
+    -- offline wait here as 'pending' until they're sent. Cleared on sign-out.
+    CREATE TABLE IF NOT EXISTS direct_messages (
+      local_id TEXT PRIMARY KEY NOT NULL,
+      client_id TEXT NOT NULL,
+      server_id TEXT UNIQUE,
+      friend_id TEXT NOT NULL,
+      from_me INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'text',
+      sos_lat REAL,
+      sos_lng REAL,
+      sos_test INTEGER,
+      created_at INTEGER NOT NULL,
+      server_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'sent'
+    );
+    CREATE INDEX IF NOT EXISTS idx_direct_messages_friend ON direct_messages (friend_id, created_at);
+
+    -- How far each chat has been caught up from the server. Only backfill()
+    -- moves it — messages pushed live don't, so one arriving live can never
+    -- make an earlier missed one get skipped.
+    CREATE TABLE IF NOT EXISTS dm_cursors (
+      friend_id TEXT PRIMARY KEY NOT NULL,
+      synced_until INTEGER NOT NULL
+    );
   `);
 }
 

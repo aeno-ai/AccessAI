@@ -11,6 +11,10 @@ import {
 import { AppState, type AppStateStatus } from 'react-native';
 import { apiFetch } from '@/api/apiClient';
 import { onUnauthorized } from '@/utils/authEvents';
+import { clearFriendData } from '@/db/friends';
+import { clearCachedContacts } from '@/utils/emergencyContacts';
+import { unregisterPush } from '@/notifications/push';
+import { clearSosCache } from '@/realtime/sosCache';
 import { decodeJwtPayload, isTokenExpired } from '@/utils/jwt';
 import { hasCompletedOnboarding, markOnboardingComplete } from '@/utils/onboardingStorage';
 import { clearToken, getToken, setToken } from '@/utils/tokenStorage';
@@ -22,6 +26,10 @@ type BootstrapContextValue = {
   isLoggedIn: boolean;
   hasOnboarded: boolean;
   role: UserRole | null;
+  /** For greetings. Null for sessions from before the token carried it. */
+  firstName: string | null;
+  /** The signed-in account's id (read from the token), e.g. to check a notification is for them. */
+  userId: string | null;
   signIn: (token: string) => Promise<void>;
   signOut: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
@@ -36,6 +44,17 @@ const BootstrapContext = createContext<BootstrapContextValue | null>(null);
 function roleFromToken(token: string | null): UserRole | null {
   const role = decodeJwtPayload(token)?.role;
   return role === 'pwd' || role === 'non_pwd' ? role : null;
+}
+
+function userIdFromToken(token: string | null): string | null {
+  const userId = decodeJwtPayload(token)?.userId;
+  return typeof userId === 'string' && userId ? userId : null;
+}
+
+/** The user's first name, read from the token the same way as the role. */
+function firstNameFromToken(token: string | null): string | null {
+  const firstName = decodeJwtPayload(token)?.firstName;
+  return typeof firstName === 'string' && firstName.trim() ? firstName.trim() : null;
 }
 
 /**
@@ -69,7 +88,8 @@ async function resolveSession(token: string | null): Promise<boolean> {
   });
 
   try {
-    await apiFetch('/auth/me');
+    // Short timeout: a server that's down shouldn't hold the splash screen.
+    await apiFetch('/auth/me', { timeoutMs: 6000 });
     return true;
   } catch {
     if (unauthorized) {
@@ -89,6 +109,8 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [hasOnboarded, setHasOnboarded] = useState(false);
   const [role, setRole] = useState<UserRole | null>(null);
+  const [firstName, setFirstName] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const appStateRef = useRef(AppState.currentState);
 
   useEffect(() => {
@@ -102,6 +124,8 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
       }
       setIsLoggedIn(valid);
       setRole(valid ? roleFromToken(token) : null);
+      setFirstName(valid ? firstNameFromToken(token) : null);
+      setUserId(valid ? userIdFromToken(token) : null);
       setHasOnboarded(onboarded);
       setReady(true);
     }
@@ -115,13 +139,25 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (token: string) => {
     await setToken(token);
     setRole(roleFromToken(token));
+    setFirstName(firstNameFromToken(token));
+    setUserId(userIdFromToken(token));
     setIsLoggedIn(true);
   }, []);
 
   const signOut = useCallback(async () => {
+    // Before the token goes: telling the server needs it.
+    await unregisterPush();
     await clearToken();
+    // Emergency contacts, friends and chats are kept on the phone so they
+    // work offline; the next person to log in here must never see (or text)
+    // this account's.
+    await clearCachedContacts();
+    await clearFriendData().catch(() => undefined);
+    await clearSosCache();
     setIsLoggedIn(false);
     setRole(null);
+    setFirstName(null);
+    setUserId(null);
   }, []);
 
   const completeOnboarding = useCallback(async () => {
@@ -148,6 +184,8 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
         setIsLoggedIn(valid);
         if (!valid) {
           setRole(null);
+          setFirstName(null);
+          setUserId(null);
         }
       })();
     });
@@ -165,11 +203,13 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
       isLoggedIn,
       hasOnboarded,
       role,
+      firstName,
+      userId,
       signIn,
       signOut,
       completeOnboarding,
     }),
-    [ready, isLoggedIn, hasOnboarded, role, signIn, signOut, completeOnboarding],
+    [ready, isLoggedIn, hasOnboarded, role, firstName, userId, signIn, signOut, completeOnboarding],
   );
 
   return <BootstrapContext.Provider value={value}>{children}</BootstrapContext.Provider>;

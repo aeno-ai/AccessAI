@@ -1,4 +1,6 @@
+import { Platform } from 'react-native';
 import * as Speech from 'expo-speech';
+import { block, unblock } from '@/audio/recognizer';
 
 /**
  * Handles "Taglish" messages — English and Filipino mixed in the same
@@ -158,20 +160,41 @@ export function analyzeSpeechClauses(message: string): SpeechClause[] {
   return splitIntoClauses(message).map((text) => ({ text, language: classifyClause(text) }));
 }
 
-function localeFor(language: ClauseLanguage): string {
+/** The voice locale for a language. Also used for speech-to-text (hooks/use-speech-to-text.ts). */
+export function localeFor(language: ClauseLanguage): string {
   return language === 'fil' ? FILIPINO_LOCALE : ENGLISH_LOCALE;
 }
 
-function speakClause(clause: SpeechClause): Promise<void> {
+/** A specific voice per language (ids from utils/voices.ts); null = the phone's normal voice. */
+export type ClauseVoices = { en?: string | null; fil?: string | null };
+
+// The app-wide voice (Settings → Conversation & speech → Voice), set by
+// hooks/use-app-voice.ts so every caller of speakMixed follows it.
+let defaultVoices: ClauseVoices = {};
+export function setDefaultVoices(voices: ClauseVoices): void {
+  defaultVoices = voices;
+}
+
+function speakClause(clause: SpeechClause, rate: number, voice: string | null | undefined): Promise<void> {
   return new Promise((resolve) => {
     Speech.speak(clause.text, {
-      language: localeFor(clause.language),
+      // Android reads "fil-PH" as one unknown language, so it gets the plain
+      // language code; iPhones want the full locale.
+      language: Platform.OS === 'android' ? clause.language : localeFor(clause.language),
+      rate,
+      pitch: 1,
+      ...(voice ? { voice } : {}),
       onDone: resolve,
       onStopped: resolve,
-      onError: () => resolve(),
+      // A voice the phone no longer has: say it again in the normal voice.
+      onError: () => (voice ? void speakClause(clause, rate, null).then(resolve) : resolve()),
     });
   });
 }
+
+// While anything is being spoken, "Hey Accel" must not listen — it would
+// hear the app itself.
+let speaking = 0;
 
 // Tracks whether the in-flight speakMixed() call has been cancelled, so its
 // clause-by-clause loop stops instead of continuing to speak after
@@ -184,25 +207,34 @@ let cancelled = false;
  * Speaks a full message clause by clause, switching between the Filipino
  * and English voice as needed. Callbacks mirror `Speech.speak`'s shape so
  * callers (e.g. MessageBubble) can swap this in as a drop-in replacement.
+ * `rate` is the user's voice speed (1 = normal), from Settings.
  */
 export async function speakMixed(
   message: string,
-  callbacks?: { onDone?: () => void; onError?: (error: unknown) => void },
+  options?: { rate?: number; voices?: ClauseVoices; onDone?: () => void; onError?: (error: unknown) => void },
 ): Promise<void> {
   cancelled = false;
+  speaking += 1;
+  block('tts');
+  const voices = options?.voices ?? defaultVoices;
   try {
     const clauses = analyzeSpeechClauses(message);
     for (const clause of clauses) {
       if (cancelled) {
         return;
       }
-      await speakClause(clause);
+      await speakClause(clause, options?.rate ?? 1, voices[clause.language]);
     }
     if (!cancelled) {
-      callbacks?.onDone?.();
+      options?.onDone?.();
     }
   } catch (error) {
-    callbacks?.onError?.(error);
+    options?.onError?.(error);
+  } finally {
+    speaking -= 1;
+    // A short pause before listening again, so the end of the sentence
+    // (and its echo) isn't heard.
+    if (speaking === 0) setTimeout(() => speaking === 0 && unblock('tts'), 400);
   }
 }
 

@@ -1,7 +1,5 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,30 +8,46 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { AuthInput } from '@/components/auth/AuthInput';
+import { GoogleSignInButton, OrDivider } from '@/components/auth/GoogleSignInButton';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
+import { RoleSelector } from '@/components/auth/RoleSelector';
+import { TermsConsent } from '@/components/auth/TermsConsent';
 import { AppLogo } from '@/components/onboarding/Illustrations';
+import { KeyboardAvoider } from '@/components/ui/KeyboardAvoider';
 import { ScreenShell } from '@/components/ui/ScreenShell';
-import { colors, MaxContentWidth } from '@/constants/theme';
+import { MaxContentWidth } from '@/constants/theme';
 import { apiFetch } from '@/api/apiClient';
-import { useBootstrap } from '@/hooks/use-bootstrap';
+import type { UserRole } from '@/hooks/use-bootstrap';
+import { useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 
 type RegisterResponse = {
-  token: string;
+  // false if the verification email couldn't be sent just now.
+  codeSent: boolean;
 };
 
 export default function RegisterScreen() {
-  const { signIn } = useBootstrap();
+  const styles = useThemedStyles(makeStyles);
+
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState<'pwd' | 'non_pwd'>('pwd');
+  // No default: choosing PWD comes with a declaration, so nobody should end
+  // up registered as one just because it was preselected.
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [pwdDeclared, setPwdDeclared] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const consentGiven = acceptedTerms && (role !== 'pwd' || pwdDeclared);
+
   const handleRegister = async () => {
     setError('');
+    if (!role || !consentGiven) {
+      return;
+    }
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -48,12 +62,19 @@ export default function RegisterScreen() {
           email,
           password,
           role,
+          // The backend refuses the sign-up unless these are exactly true,
+          // and records when they were agreed to.
+          acceptedTerms,
+          pwdDeclaration: role === 'pwd' && pwdDeclared,
         }),
       });
-      // Logs the new user straight in. The root layout's guards then take
-      // them into onboarding (or the dashboard, if this device has already
-      // been through it) — no second password entry needed.
-      await signIn(data.token);
+      // The account can't be used until the emailed code is entered. That
+      // screen logs the new user straight in, on into onboarding — no
+      // second password entry needed.
+      router.push({
+        pathname: '/verify-email',
+        params: { email: email.trim(), codeSent: data.codeSent ? '1' : '0' },
+      });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Registration failed');
     } finally {
@@ -63,16 +84,16 @@ export default function RegisterScreen() {
 
   return (
     <ScreenShell maxWidth={MaxContentWidth.auth}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoider>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
             <AppLogo size={64} />
             <Text style={styles.title}>Create account</Text>
             <Text style={styles.subtitle}>Sign up to get started</Text>
           </View>
+
+          <GoogleSignInButton />
+          <OrDivider label="or sign up with email" />
 
           {/* 30 characters each — the same limit the backend enforces. */}
           <AuthInput
@@ -103,23 +124,12 @@ export default function RegisterScreen() {
             keyboardType="email-address"
           />
 
-          <View style={styles.roleContainer}>
-            <Text style={styles.label}>I am</Text>
-            <View style={styles.roleToggle}>
-              <TouchableOpacity
-                style={[styles.roleOption, role === 'pwd' && styles.roleOptionActive]}
-                onPress={() => setRole('pwd')}
-              >
-                <Text style={[styles.roleText, role === 'pwd' && styles.roleTextActive]}>PWD</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.roleOption, role === 'non_pwd' && styles.roleOptionActive]}
-                onPress={() => setRole('non_pwd')}
-              >
-                <Text style={[styles.roleText, role === 'non_pwd' && styles.roleTextActive]}>Non-PWD</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <RoleSelector
+            role={role}
+            onRoleChange={setRole}
+            pwdDeclared={pwdDeclared}
+            onPwdDeclaredChange={setPwdDeclared}
+          />
 
           <AuthInput
             label="Password"
@@ -136,13 +146,15 @@ export default function RegisterScreen() {
             isPassword
           />
 
+          <TermsConsent accepted={acceptedTerms} onChange={setAcceptedTerms} />
+
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
           <PrimaryButton
             title="Create Account"
             onPress={() => void handleRegister()}
             loading={loading}
-            disabled={!firstName.trim() || !lastName.trim() || !email || !password}
+            disabled={!firstName.trim() || !lastName.trim() || !email || !password || !role || !consentGiven}
           />
 
           <TouchableOpacity onPress={() => router.push('/login')} style={styles.linkWrap}>
@@ -152,86 +164,50 @@ export default function RegisterScreen() {
             </Text>
           </TouchableOpacity>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </ScreenShell>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
-  },
-  container: {
-    flexGrow: 1,
-    padding: 24,
-    justifyContent: 'center',
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  title: {
-    marginTop: 12,
-    fontSize: 26,
-    fontWeight: '800',
-    color: colors.textDark,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: 6,
-  },
-  label: {
-    color: colors.primary,
-    fontWeight: '600',
-    marginBottom: 6,
-    fontSize: 14,
-  },
-  roleContainer: {
-    width: '100%',
-    marginBottom: 16,
-  },
-  roleToggle: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  roleOption: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-    backgroundColor: colors.white,
-  },
-  roleOptionActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  roleText: {
-    color: colors.textDark,
-    fontWeight: '600',
-  },
-  roleTextActive: {
-    color: colors.white,
-  },
-  errorText: {
-    color: colors.error,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  linkWrap: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  linkText: {
-    color: colors.textMuted,
-    fontSize: 14,
-  },
-  linkAccent: {
-    color: colors.primary,
-    fontWeight: '700',
-  },
-});
+const makeStyles = (t: AppTheme) =>
+  StyleSheet.create({
+    container: {
+      flexGrow: 1,
+      padding: 24,
+      justifyContent: 'center',
+    },
+    header: {
+      alignItems: 'center',
+      marginBottom: 24,
+    },
+    title: {
+      marginTop: 12,
+      fontSize: t.font(26),
+      fontWeight: t.weight('800'),
+      color: t.colors.textPrimary,
+      textAlign: 'center',
+    },
+    subtitle: {
+      fontSize: t.font(14),
+      color: t.colors.textMuted,
+      textAlign: 'center',
+      marginTop: 6,
+    },
+    errorText: {
+      color: t.colors.dangerText,
+      textAlign: 'center',
+      marginBottom: 12,
+    },
+    linkWrap: {
+      marginTop: 20,
+      alignItems: 'center',
+    },
+    linkText: {
+      color: t.colors.textMuted,
+      fontSize: t.font(14),
+    },
+    linkAccent: {
+      color: t.colors.primary,
+      fontWeight: t.weight('700'),
+    },
+  });

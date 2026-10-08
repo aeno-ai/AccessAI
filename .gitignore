@@ -30,11 +30,38 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files — secrets live only on this computer (an old commit once
+# included backend/.env; those values have since been changed)
+.env
+.env.*
+!.env.example
 .env*.local
 backend/.env
 frontend/.env
 admin/.env
+
+# Google OAuth client secrets downloaded from Google Cloud
+client_secret_*.json
+# Firebase. The service-account key is a real secret (it lives on EAS only).
+# google-services.json holds an API key that scanners flag in a PUBLIC repo,
+# so it stays out of git too; EAS builds get it from the GOOGLE_SERVICES_JSON
+# file variable instead (see frontend/app.config.js and HANDOFF.md §2.4).
+*firebase-adminsdk*.json
+*service-account*.json
+google-services.json
+GoogleService-Info.plist
+# Signing keys and local EAS credentials
+*.keystore
+credentials.json
+
+# AI service (ai/): its Python environment, the vector index it rebuilds by
+# itself, and the sign models (13 MB each — copy them in, see
+# ai/models/sign/README.md).
+ai/.venv/
+ai/.chroma/
+__pycache__/
+ai/models/**/*.keras
+ai/models/**/*.tflite
 
 # typescript
 *.tsbuildinfo

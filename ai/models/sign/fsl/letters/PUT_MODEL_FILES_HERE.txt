@@ -1,0 +1,7 @@
+Put the FSL fingerspelling (letters) model here when it is trained:
+
+  model.keras   (or model.tflite)
+  labels.json   (output index -> letter, e.g. {"0": "A", "1": "B"})
+  meta.json     (optional; see ../../README.md)
+
+Then restart `npm run dev`. Until then the app shows "Letters (soon)".

@@ -1,21 +1,7 @@
 import { Platform } from 'react-native';
 
-export const colors = {
-  primary: '#6C5CE7',
-  primaryDark: '#4C3FE0',
-  primaryLight: '#EFEAFE',
-  background: '#FFFFFF',
-  canvas: '#F4F2FB',
-  inputBorder: '#E5E7EB',
-  border: '#E5E7EB',
-  textDark: '#1A1A2E',
-  textPrimary: '#1A1A2E',
-  textSecondary: '#6B7280',
-  textMuted: '#9CA3AF',
-  white: '#FFFFFF',
-  error: '#E74C3C',
-  dark: '#241F3D',
-} as const;
+// Colors live in constants/palettes.ts and come from useAppTheme(), so they
+// follow the user's color scheme, dark mode and contrast choices.
 
 export const Spacing = {
   half: 2,

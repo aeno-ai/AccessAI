@@ -1,6 +1,7 @@
 const { body, param, query } = require('express-validator');
 const { ADMIN_ROLES } = require('../constants/adminRoles');
 const { strongPassword } = require('./authValidators');
+const { GENERIC, strictBoolean } = require('./common');
 
 const emailRules = (field = 'email') =>
   body(field)
@@ -12,13 +13,11 @@ const emailRules = (field = 'email') =>
     .withMessage('A valid email is required')
     .normalizeEmail();
 
-// JSON true/false only — not "true", 1, or "yes".
-const strictBoolean = (field) =>
-  body(field)
-    .custom((value) => typeof value === 'boolean')
-    .withMessage(`${field} must be true or false`);
+const idParam = param('id').isMongoId().withMessage("That account couldn't be found.");
 
-const idParam = param('id').isMongoId().withMessage('Invalid id');
+// A single query value — ?role=pwd&role=non_pwd arrives as an array, and
+// isIn/isInt would otherwise check it item by item.
+const singleQuery = (field) => query(field).optional().isString().withMessage(GENERIC).bail();
 
 // ============== /api/admin/auth ==============
 
@@ -52,10 +51,10 @@ const changePasswordValidators = [
 // returns these sanitized versions (e.g. page as a number, not a string).
 const userListValidators = [
   query('search').optional().isString().trim().isLength({ max: 100 }).withMessage('Search is too long'),
-  query('role').optional().isIn(['pwd', 'non_pwd']).withMessage('Invalid role filter'),
-  query('status').optional().isIn(['active', 'inactive']).withMessage('Invalid status filter'),
-  query('page').optional().isInt({ min: 1, max: 10000 }).withMessage('Invalid page').toInt(),
-  query('limit').optional().isInt({ min: 1, max: 50 }).withMessage('Limit must be 1-50').toInt(),
+  singleQuery('role').isIn(['pwd', 'non_pwd']).withMessage(GENERIC),
+  singleQuery('status').isIn(['active', 'inactive']).withMessage(GENERIC),
+  singleQuery('page').isInt({ min: 1, max: 10000 }).withMessage(GENERIC).toInt(),
+  singleQuery('limit').isInt({ min: 1, max: 50 }).withMessage(GENERIC).toInt(),
 ];
 
 const userIdValidators = [idParam];
@@ -75,13 +74,13 @@ const createAdminValidators = [
     .withMessage('Name is required')
     .isLength({ max: 100 })
     .withMessage('Name must be 100 characters or fewer'),
-  body('role').isIn(ADMIN_ROLES).withMessage('Invalid role'),
+  body('role').isString().withMessage('Choose a role').bail().isIn(ADMIN_ROLES).withMessage('Choose a role'),
   strongPassword('password'),
 ];
 
 const updateAdminValidators = [
   idParam,
-  body('role').optional().isIn(ADMIN_ROLES).withMessage('Invalid role'),
+  body('role').optional().isString().withMessage('Choose a role').bail().isIn(ADMIN_ROLES).withMessage('Choose a role'),
   strictBoolean('isActive').optional(),
   body()
     .custom((value) => value?.role !== undefined || value?.isActive !== undefined)

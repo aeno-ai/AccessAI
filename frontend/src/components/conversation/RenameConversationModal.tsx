@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
+import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 
 type RenameConversationModalProps = {
   visible: boolean;
@@ -13,7 +14,7 @@ type RenameConversationModalProps = {
 /**
  * Small "rename this conversation" dialog, used from both History and the
  * conversation screen's header. A custom Modal rather than Alert.prompt,
- * which only exists on iOS. Same backdrop/sheet look as SosModal.
+ * which only exists on iOS. Same backdrop/sheet look as the SOS dialog (components/sos/SosFlow.tsx).
  */
 export function RenameConversationModal({ visible, initialTitle, onCancel, onSave }: RenameConversationModalProps) {
   return (
@@ -26,6 +27,9 @@ export function RenameConversationModal({ visible, initialTitle, onCancel, onSav
 }
 
 function RenameSheet({ initialTitle, onCancel, onSave }: Omit<RenameConversationModalProps, 'visible'>) {
+  const { colors } = useAppTheme();
+  const styles = useThemedStyles(makeStyles);
+
   const [title, setTitle] = useState(initialTitle);
   const trimmed = title.trim();
   const canSave = trimmed.length > 0 && trimmed !== initialTitle;
@@ -73,74 +77,75 @@ function RenameSheet({ initialTitle, onCancel, onSave }: Omit<RenameConversation
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(20, 16, 36, 0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.four,
-  },
-  sheet: {
-    width: '100%',
-    maxWidth: 420,
-    backgroundColor: colors.white,
-    borderRadius: 20,
-    padding: Spacing.four,
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    marginTop: 10,
-    textAlign: 'center',
-  },
-  input: {
-    width: '100%',
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginTop: 16,
-    fontSize: 15,
-    color: colors.textPrimary,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 18,
-    width: '100%',
-  },
-  primaryButton: {
-    flex: 1,
-    backgroundColor: colors.primary,
-    borderRadius: 24,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  disabledButton: {
-    backgroundColor: colors.border,
-  },
-  primaryButtonText: {
-    color: colors.white,
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  secondaryButton: {
-    flex: 1,
-    borderRadius: 24,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  secondaryButtonText: {
-    color: colors.textSecondary,
-    fontWeight: '700',
-    fontSize: 14,
-  },
-});
+const makeStyles = (t: AppTheme) =>
+  StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      backgroundColor: t.colors.overlay,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: Spacing.four,
+    },
+    sheet: {
+      width: '100%',
+      maxWidth: 420,
+      backgroundColor: t.colors.surface,
+      borderRadius: 20,
+      padding: Spacing.four,
+      alignItems: 'center',
+    },
+    title: {
+      fontSize: t.font(18),
+      fontWeight: t.weight('800'),
+      color: t.colors.textPrimary,
+      marginTop: 10,
+      textAlign: 'center',
+    },
+    input: {
+      width: '100%',
+      borderWidth: 1,
+      borderColor: t.colors.inputBorder,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      marginTop: 16,
+      fontSize: t.font(15),
+      color: t.colors.textPrimary,
+    },
+    actionsRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 18,
+      width: '100%',
+    },
+    primaryButton: {
+      flex: 1,
+      backgroundColor: t.colors.primary,
+      borderRadius: 24,
+      paddingVertical: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    disabledButton: {
+      backgroundColor: t.colors.border,
+    },
+    primaryButtonText: {
+      color: t.colors.onPrimary,
+      fontWeight: t.weight('700'),
+      fontSize: t.font(14),
+    },
+    secondaryButton: {
+      flex: 1,
+      borderRadius: 24,
+      paddingVertical: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: t.colors.border,
+    },
+    secondaryButtonText: {
+      color: t.colors.textSecondary,
+      fontWeight: t.weight('700'),
+      fontSize: t.font(14),
+    },
+  });

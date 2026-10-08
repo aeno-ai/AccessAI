@@ -1,28 +1,31 @@
 const { body, param } = require('express-validator');
+const { GENERIC } = require('./common');
+
+// Conversations are synced by the app in the background, so none of these
+// fields are typed by a person: anything wrong here means a buggy or
+// tampered client, and gets the plain GENERIC message.
+const shortText = (chain, max) =>
+  chain.isString().withMessage(GENERIC).bail().trim().notEmpty().withMessage(GENERIC).isLength({ max }).withMessage(GENERIC);
 
 const syncConversationValidators = [
-  body('clientId').isString().trim().notEmpty().withMessage('clientId is required').isLength({ max: 100 }),
-  body('title').isString().trim().notEmpty().withMessage('title is required').isLength({ max: 200 }),
-  body('mode').isString().trim().notEmpty().withMessage('mode is required').isLength({ max: 50 }),
-  body('messages').isArray().withMessage('messages must be an array'),
-  body('messages.*.clientId')
-    .isString()
-    .trim()
-    .notEmpty()
-    .withMessage('each message needs a clientId')
-    .isLength({ max: 100 }),
-  body('messages.*.sender').isIn(['me', 'them']).withMessage('sender must be "me" or "them"'),
+  shortText(body('clientId'), 100),
+  shortText(body('title'), 200),
+  shortText(body('mode'), 50),
+  body('messages').isArray().withMessage(GENERIC),
+  shortText(body('messages.*.clientId'), 100),
+  body('messages.*.sender').isString().withMessage(GENERIC).bail().isIn(['me', 'them']).withMessage(GENERIC),
   body('messages.*.body')
     .isString()
+    .withMessage(GENERIC)
+    .bail()
     .trim()
     .notEmpty()
-    .withMessage('message body is required')
-    .isLength({ max: 2000 }),
-  body('messages.*.createdAt').isInt({ min: 0 }).withMessage('message createdAt must be a timestamp'),
+    .withMessage(GENERIC)
+    .isLength({ max: 2000 })
+    .withMessage('Messages can be up to 2000 characters'),
+  body('messages.*.createdAt').not().isArray().withMessage(GENERIC).bail().isInt({ min: 0 }).withMessage(GENERIC),
 ];
 
-const conversationClientIdValidators = [
-  param('clientId').isString().trim().notEmpty().withMessage('clientId is required').isLength({ max: 100 }),
-];
+const conversationClientIdValidators = [shortText(param('clientId'), 100)];
 
 module.exports = { syncConversationValidators, conversationClientIdValidators };

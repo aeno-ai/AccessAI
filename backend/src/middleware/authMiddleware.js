@@ -1,37 +1,26 @@
-const jwt = require('jsonwebtoken');
-const User = require('../models/Users');
+const { verifyUserToken } = require('../utils/verifyUserToken');
 
+// Lets a request through only with a valid mobile-app login token for an
+// account that may still use it — see utils/verifyUserToken.js for exactly
+// what's checked. The mobile app signs the user out on any 401.
 const protect = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'No token provided' });
+    return res.status(401).json({ message: 'Please log in again.' });
   }
-
-  const token = authHeader.split(' ')[1];
 
   let decoded;
   try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET);
-  } catch (error) {
-    return res.status(401).json({ message: 'Invalid or expired token' });
-  }
-
-  try {
-    // A valid signature only proves we issued the token — not that the
-    // account is still allowed in. Checking here means an admin
-    // deactivating a user takes effect on that user's very next request,
-    // not whenever their 7-day token happens to expire. The mobile app
-    // already signs the user out on any 401.
-    const isActive = await User.exists({ _id: decoded.userId, isActive: { $ne: false } });
-    if (!isActive) {
-      return res.status(401).json({ message: 'Account not found or deactivated' });
-    }
+    decoded = await verifyUserToken(authHeader.split(' ')[1]);
   } catch (error) {
     return next(error);
   }
+  if (!decoded) {
+    return res.status(401).json({ message: 'Please log in again.' });
+  }
 
-  req.user = decoded; // { userId, role }
+  req.user = decoded; // { userId, role, firstName }
   next();
 };
 

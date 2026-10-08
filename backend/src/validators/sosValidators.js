@@ -1,21 +1,39 @@
 const { body, param } = require('express-validator');
+const { GENERIC, strictBoolean, numberInRange } = require('./common');
 
 const triggerSosValidators = [
-  body('triggerMethod').isString().trim().notEmpty().withMessage('triggerMethod is required'),
-  body('location').optional().isObject().withMessage('location must be an object'),
-  body('location.latitude')
+  // Free text on purpose (see models/SOSEvent.js), but short.
+  body('triggerMethod').isString().withMessage(GENERIC).bail().trim().notEmpty().withMessage(GENERIC).isLength({ max: 30 }).withMessage(GENERIC),
+  body('location').optional().isObject().withMessage(GENERIC),
+  numberInRange('location.latitude', -90, 90).optional(),
+  numberInRange('location.longitude', -180, 180).optional(),
+  body('place').optional().isString().withMessage(GENERIC).bail().trim().isLength({ max: 200 }).withMessage(GENERIC),
+  body('message')
     .optional()
-    .isFloat({ min: -90, max: 90 })
-    .withMessage('latitude must be between -90 and 90'),
-  body('location.longitude')
-    .optional()
-    .isFloat({ min: -180, max: 180 })
-    .withMessage('longitude must be between -180 and 180'),
-  body('message').optional().isString().trim().isLength({ max: 500 }),
-  body('silentMode').optional().isBoolean().withMessage('silentMode must be true or false'),
-  body('isTest').optional().isBoolean().withMessage('isTest must be true or false'),
+    .isString()
+    .withMessage(GENERIC)
+    .bail()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('The SOS message can be up to 500 characters'),
+  strictBoolean('silentMode').optional(),
+  strictBoolean('isTest').optional(),
 ];
 
-const sosIdValidators = [param('id').isMongoId().withMessage('Invalid SOS event id')];
+const sosIdValidators = [param('id').isMongoId().withMessage('That SOS is no longer active.')];
 
-module.exports = { triggerSosValidators, sosIdValidators };
+// The sender's phone sharing where they are now (every ~30 s for 30 min).
+const locationValidators = [
+  ...sosIdValidators,
+  numberInRange('latitude', -90, 90),
+  numberInRange('longitude', -180, 180),
+  numberInRange('accuracy', 0, 100000).optional(),
+];
+
+// A friend answering an SOS: "I've seen it" or "I'm on my way".
+const respondValidators = [
+  ...sosIdValidators,
+  body('kind').isString().withMessage(GENERIC).bail().isIn(['seen', 'on_my_way']).withMessage(GENERIC),
+];
+
+module.exports = { triggerSosValidators, sosIdValidators, locationValidators, respondValidators };

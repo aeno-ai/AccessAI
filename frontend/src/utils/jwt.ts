@@ -13,6 +13,7 @@
 type JwtPayload = {
   userId?: string;
   role?: string;
+  firstName?: string;
   iat?: number;
   exp?: number;
 };
@@ -23,11 +24,14 @@ function base64UrlDecode(segment: string): string | null {
     const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
 
     if (typeof atob === 'function') {
-      // Available on web and modern Hermes. The payload we decode here
-      // (userId, role, iat, exp) is always plain ASCII, so the raw `atob`
-      // output is used as-is rather than routing it through `TextDecoder`,
-      // whose availability varies more across RN engine versions.
-      return atob(padded);
+      // Available on web and modern Hermes. `atob` gives one character per
+      // byte, so the UTF-8 bytes are reassembled here — the first name in
+      // the payload can have letters like "ñ". decodeURIComponent does that
+      // without depending on `TextDecoder`, whose availability varies more
+      // across RN engine versions.
+      const binary = atob(padded);
+      const percentEncoded = Array.from(binary, (char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`);
+      return decodeURIComponent(percentEncoded.join(''));
     }
 
     // Some RN/Hermes setups polyfill a global `Buffer` instead of `atob`.

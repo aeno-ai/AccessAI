@@ -1,0 +1,26 @@
+# The AI service's Python packages. Installed into ai/.venv automatically by
+# backend/scripts/startAi.js (`npm run dev`), with Python 3.12.
+#
+# Pinned to a set checked to work together on Windows:
+# - mediapipe 0.10.14 is exactly what the sign models' training data was
+#   extracted with (newer MediaPipe removed Holistic). It needs protobuf < 5,
+# - which is why ChromaDB's telemetry packages are held at 1.15 (newer ones
+#   would pull protobuf 5 and break MediaPipe).
+
+# Web server
+fastapi==0.142.2
+uvicorn==0.54.0
+pydantic==2.13.5
+httpx==0.28.1
+
+# Vector database (Accel's example sentences)
+chromadb==1.5.9
+opentelemetry-proto==1.15.0
+opentelemetry-exporter-otlp-proto-grpc==1.15.0
+
+# Sign language
+mediapipe==0.10.14
+protobuf==4.25.9
+opencv-contrib-python==4.14.0.94
+numpy==2.5.3
+h5py==3.16.0

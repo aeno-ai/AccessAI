@@ -1,0 +1,644 @@
+{
+  "about": "Everything Accel (the voice assistant) can do. Each action has an id (the app's frontend/src/accel/intent-ids.json must list the same ids), a description the AI reads, the details it may need (slots), and example sentences in English, Filipino and Taglish. More examples = better understanding: add freely, then restart the AI service and the vector index rebuilds by itself.",
+  "intents": [
+    {
+      "id": "nav.home",
+      "description": "Go to the Home screen",
+      "slots": [],
+      "examples": [
+        "go home",
+        "take me home",
+        "open the home screen",
+        "back to the main screen",
+        "dashboard",
+        "main menu",
+        "uwi tayo sa home",
+        "punta sa home",
+        "bumalik sa simula",
+        "pakibuksan ang home"
+      ]
+    },
+    {
+      "id": "nav.conversation",
+      "description": "Open Conversation mode to talk with someone face to face (speech to text, text to speech, sign language), for example with a deaf person",
+      "slots": [],
+      "examples": [
+        "take me to conversation mode",
+        "navigate me to conversation mode",
+        "I want to talk with someone",
+        "start a conversation",
+        "open conversation",
+        "I want to talk to a deaf person",
+        "help me talk to someone",
+        "let's talk",
+        "talk mode",
+        "gusto kong makipag-usap",
+        "may kakausapin ako",
+        "kausapin ko yung bingi",
+        "buksan ang conversation",
+        "usap tayo",
+        "i-open mo yung conversation mode"
+      ]
+    },
+    {
+      "id": "nav.chats",
+      "description": "Open Chats, the list of saved in-person conversations",
+      "slots": [],
+      "examples": [
+        "open my chats",
+        "show my saved conversations",
+        "conversation history",
+        "past conversations",
+        "my chats",
+        "buksan ang mga chat ko",
+        "yung mga dati kong usapan",
+        "show chat history"
+      ]
+    },
+    {
+      "id": "nav.friends",
+      "description": "Open the Friends list",
+      "slots": [],
+      "examples": [
+        "open friends",
+        "show my friends",
+        "friends list",
+        "who are my friends",
+        "go to friends",
+        "mga kaibigan ko",
+        "buksan ang friends",
+        "punta sa friends tab"
+      ]
+    },
+    {
+      "id": "nav.friend_requests",
+      "description": "Open friend requests (people who want to be friends)",
+      "slots": [],
+      "examples": [
+        "open friend requests",
+        "show friend requests",
+        "pending requests",
+        "who added me",
+        "buksan ang friend requests",
+        "sino nag-add sa akin"
+      ]
+    },
+    {
+      "id": "nav.add_friend",
+      "description": "Open the screen to add a friend by friend code or QR code",
+      "slots": [],
+      "examples": [
+        "add a friend",
+        "I want to add a friend",
+        "add someone",
+        "scan a friend's QR code",
+        "open add friend",
+        "magdagdag ng kaibigan",
+        "i-add ko si",
+        "gusto kong mag-add ng friend",
+        "add friend page"
+      ]
+    },
+    {
+      "id": "nav.chat_with",
+      "description": "Open the online chat with one friend",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "open my chat with Ana",
+        "chat with Ben",
+        "message Carlo",
+        "go to my conversation with mom",
+        "buksan ang chat namin ni Ana",
+        "i-chat si Ben",
+        "kausapin ko si Lola sa chat",
+        "open Ana's chat"
+      ]
+    },
+    {
+      "id": "nav.learn",
+      "description": "Open Learn (tutorials)",
+      "slots": [],
+      "examples": [
+        "open learn",
+        "tutorials",
+        "teach me how to use the app",
+        "lessons",
+        "buksan ang learn",
+        "paano gamitin ang app"
+      ]
+    },
+    {
+      "id": "nav.settings",
+      "description": "Open Settings",
+      "slots": [],
+      "examples": [
+        "open settings",
+        "go to settings",
+        "preferences",
+        "app settings",
+        "buksan ang settings",
+        "settings please"
+      ]
+    },
+    {
+      "id": "nav.settings_needs",
+      "description": "Open Settings → My needs (blind, deaf, mute profile)",
+      "slots": [],
+      "examples": [
+        "open my needs",
+        "change my profile type",
+        "accessibility profile",
+        "I am blind settings",
+        "my disability settings",
+        "palitan ang profile ko"
+      ]
+    },
+    {
+      "id": "nav.settings_display",
+      "description": "Open Settings → Display & text (colors, text size, contrast)",
+      "slots": [],
+      "examples": [
+        "display settings",
+        "change colors",
+        "text size settings",
+        "high contrast",
+        "dark mode",
+        "palitan ang kulay",
+        "laki ng sulat settings"
+      ]
+    },
+    {
+      "id": "nav.settings_speech",
+      "description": "Open Settings → Conversation & speech (reading aloud, voice, speed)",
+      "slots": [],
+      "examples": [
+        "speech settings",
+        "voice settings",
+        "read aloud settings",
+        "conversation settings",
+        "settings ng boses",
+        "text to speech settings"
+      ]
+    },
+    {
+      "id": "nav.settings_alerts",
+      "description": "Open Settings → Alerts (vibration, flash)",
+      "slots": [],
+      "examples": [
+        "alert settings",
+        "vibration settings",
+        "flash settings",
+        "notification settings",
+        "settings ng vibrate"
+      ]
+    },
+    {
+      "id": "nav.settings_sos",
+      "description": "Open Settings → Emergency SOS: choose which friends get my SOS (SOS circle), shake to send, countdown",
+      "slots": [],
+      "examples": [
+        "SOS settings",
+        "emergency settings",
+        "who gets my SOS",
+        "change SOS countdown",
+        "shake to SOS settings",
+        "settings ng SOS",
+        "change the friends who get my SOS",
+        "pick who is in my SOS circle",
+        "sino makakatanggap ng SOS ko",
+        "SOS circle settings"
+      ]
+    },
+    {
+      "id": "nav.settings_accel",
+      "description": "Open Settings → Accel (the voice assistant itself)",
+      "slots": [],
+      "examples": [
+        "Accel settings",
+        "assistant settings",
+        "voice assistant settings",
+        "turn off hey accel",
+        "settings mo Accel"
+      ]
+    },
+    {
+      "id": "nav.emergency_contacts",
+      "description": "Open Emergency contacts: the PHONE NUMBERS that get a text message during an SOS",
+      "slots": [],
+      "examples": [
+        "emergency contacts",
+        "open my emergency contacts",
+        "add an emergency contact",
+        "who gets my SOS text",
+        "mga emergency contact ko",
+        "buksan ang emergency contacts",
+        "phone numbers for emergencies",
+        "mga numero sa emergency"
+      ]
+    },
+    {
+      "id": "nav.profile",
+      "description": "Open Edit profile (name, note to friends)",
+      "slots": [],
+      "examples": [
+        "edit my profile",
+        "change my name",
+        "my profile",
+        "account details",
+        "palitan ang pangalan ko",
+        "profile ko"
+      ]
+    },
+    {
+      "id": "nav.accel_guide",
+      "description": "Open the guide of what Accel can do",
+      "slots": [],
+      "examples": [
+        "open the Accel guide",
+        "show me what you can do",
+        "Accel guide",
+        "list of commands",
+        "guide ng assistant"
+      ]
+    },
+    {
+      "id": "nav.back",
+      "description": "Go back to the previous screen",
+      "slots": [],
+      "examples": [
+        "go back",
+        "back",
+        "previous screen",
+        "return",
+        "bumalik",
+        "balik",
+        "atras"
+      ]
+    },
+    {
+      "id": "sos.send",
+      "description": "Send an emergency SOS to friends and emergency contacts",
+      "slots": [],
+      "examples": [
+        "SOS",
+        "send SOS",
+        "emergency",
+        "I need help now",
+        "help me I'm in danger",
+        "call for help",
+        "I'm in trouble",
+        "tulong",
+        "saklolo",
+        "tulungan niyo ako",
+        "emergency po",
+        "may emergency",
+        "i-SOS mo",
+        "nasa panganib ako"
+      ]
+    },
+    {
+      "id": "sos.im_safe",
+      "description": "Say you are safe now and end your active SOS",
+      "slots": [],
+      "examples": [
+        "I'm safe",
+        "I am safe now",
+        "end my SOS",
+        "cancel the emergency",
+        "false alarm",
+        "okay na ako",
+        "ligtas na ako",
+        "tapusin ang SOS",
+        "safe na ako"
+      ]
+    },
+    {
+      "id": "sos.circle_add",
+      "description": "Add a friend to my SOS circle (they get my SOS alerts)",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "add Ana to my SOS circle",
+        "let Ben get my SOS",
+        "put mom in my SOS circle",
+        "isama si Ana sa SOS",
+        "i-add si Ben sa SOS circle ko"
+      ]
+    },
+    {
+      "id": "sos.circle_remove",
+      "description": "Remove a friend from my SOS circle",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "remove Ana from my SOS circle",
+        "stop sending my SOS to Ben",
+        "tanggalin si Ana sa SOS",
+        "huwag na isama si Ben sa SOS"
+      ]
+    },
+    {
+      "id": "read.new_messages",
+      "description": "Read out whether there are new chat messages or texts from friends, and from whom",
+      "slots": [],
+      "examples": [
+        "any new messages",
+        "do I have messages",
+        "check my messages",
+        "who messaged me",
+        "may bagong message ba",
+        "may nag-message ba sa akin",
+        "read my new messages",
+        "unread messages",
+        "has anyone messaged me",
+        "did I get any texts",
+        "any new chats",
+        "may nag-text ba sa akin",
+        "may nag-chat ba",
+        "may bagong text",
+        "check if someone sent me a message"
+      ]
+    },
+    {
+      "id": "read.last_message_from",
+      "description": "Read aloud the last message one friend sent me (what did they say)",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "read Ana's last message",
+        "what did Ben say",
+        "read the last message from mom",
+        "ano sabi ni Ana",
+        "basahin ang huling message ni Ben",
+        "what was Carlo's message",
+        "what did Ana just tell me",
+        "what was the last thing Ben said",
+        "anong huling sinabi ni Ana",
+        "read me what mom sent"
+      ]
+    },
+    {
+      "id": "read.who_online",
+      "description": "Say which friends are online now",
+      "slots": [],
+      "examples": [
+        "who is online",
+        "which friends are online",
+        "is anyone online",
+        "sino ang online",
+        "may online ba sa friends ko"
+      ]
+    },
+    {
+      "id": "read.where_am_i",
+      "description": "Say which screen I am on and what I can do here",
+      "slots": [],
+      "examples": [
+        "where am I",
+        "what screen is this",
+        "what page am I on",
+        "what can I do here",
+        "nasaan ako",
+        "anong screen ito"
+      ]
+    },
+    {
+      "id": "read.help",
+      "description": "Say what Accel can do",
+      "slots": [],
+      "examples": [
+        "what can I say",
+        "help",
+        "what can you do",
+        "how do I use you",
+        "commands",
+        "ano pwede kong sabihin",
+        "ano kaya mong gawin",
+        "tulungan mo ako gamitin ka"
+      ]
+    },
+    {
+      "id": "read.repeat",
+      "description": "Repeat what Accel last said",
+      "slots": [],
+      "examples": [
+        "repeat that",
+        "say that again",
+        "what did you say",
+        "again please",
+        "ulitin mo",
+        "pakiulit",
+        "ano ulit"
+      ]
+    },
+    {
+      "id": "read.my_friend_code",
+      "description": "Read my friend code aloud slowly so I can tell a friend",
+      "slots": [],
+      "examples": [
+        "what is my friend code",
+        "read my friend code",
+        "tell me my code",
+        "my QR code",
+        "share my code",
+        "ano ang friend code ko",
+        "basahin ang code ko"
+      ]
+    },
+    {
+      "id": "read.friend_requests",
+      "description": "Say who sent me friend requests",
+      "slots": [],
+      "examples": [
+        "any friend requests",
+        "do I have friend requests",
+        "who wants to be my friend",
+        "may friend request ba",
+        "sino ang nag-request"
+      ]
+    },
+    {
+      "id": "msg.send",
+      "description": "Send a chat message to a friend (the friend's name and the message text)",
+      "slots": [
+        "friendName",
+        "messageText"
+      ],
+      "examples": [
+        "tell Ana I'm on my way",
+        "send Ben a message saying I'll be late",
+        "message mom that I'm home",
+        "text Carlo see you tomorrow",
+        "sabihin mo kay Ana pauwi na ako",
+        "i-message si Ben na male-late ako",
+        "pakisabi kay mama nandito na ako",
+        "send a message to Lola: kumain na po ako"
+      ]
+    },
+    {
+      "id": "friend.add_code",
+      "description": "Send a friend request using a friend code like ABCD-2345",
+      "slots": [
+        "friendCode"
+      ],
+      "examples": [
+        "add friend code ABCD 2345",
+        "add the code K7 M2 P9 Q4",
+        "send a friend request to code WXYZ 6789",
+        "i-add ang code ABCD 2345",
+        "friend code is HJKM 3456"
+      ]
+    },
+    {
+      "id": "friend.accept_request",
+      "description": "Accept a friend request",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "accept the friend request",
+        "accept Ana's request",
+        "yes add them as a friend",
+        "tanggapin ang request",
+        "i-accept si Ben"
+      ]
+    },
+    {
+      "id": "friend.decline_request",
+      "description": "Decline a friend request",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "decline the friend request",
+        "reject Ana's request",
+        "ignore that request",
+        "huwag tanggapin",
+        "i-decline ang request ni Ben"
+      ]
+    },
+    {
+      "id": "speech.slower",
+      "description": "The voice talks TOO FAST — make it speak SLOWER",
+      "slots": [],
+      "examples": [
+        "speak slower",
+        "talk slower",
+        "slow down",
+        "too fast",
+        "dahan-dahan",
+        "bagalan mo",
+        "mabagal lang",
+        "you talk too fast",
+        "I can't follow, slow down",
+        "masyadong mabilis ka magsalita",
+        "slower please"
+      ]
+    },
+    {
+      "id": "speech.faster",
+      "description": "The voice talks TOO SLOWLY — make it speak FASTER",
+      "slots": [],
+      "examples": [
+        "speak faster",
+        "talk faster",
+        "speed up",
+        "too slow",
+        "bilisan mo",
+        "mas mabilis",
+        "you talk too slowly",
+        "you're so slow, speed up",
+        "masyadong mabagal ka magsalita",
+        "faster please"
+      ]
+    },
+    {
+      "id": "text.bigger",
+      "description": "The words on screen are TOO SMALL or hard to read — make the text BIGGER",
+      "slots": [],
+      "examples": [
+        "bigger text",
+        "make the text bigger",
+        "increase font size",
+        "I can't read it",
+        "palakihin ang sulat",
+        "laki ng font",
+        "the words are too small",
+        "I can't see the words",
+        "ang liit ng sulat",
+        "zoom in the text"
+      ]
+    },
+    {
+      "id": "text.smaller",
+      "description": "The words on screen are TOO BIG — make the text SMALLER",
+      "slots": [],
+      "examples": [
+        "smaller text",
+        "make the text smaller",
+        "decrease font size",
+        "liitan ang sulat",
+        "the words are too big",
+        "the text is huge",
+        "ang laki ng sulat",
+        "zoom out the text"
+      ]
+    },
+    {
+      "id": "voice.change",
+      "description": "Change the app's voice to a man's or woman's voice, or automatic",
+      "slots": [
+        "value"
+      ],
+      "examples": [
+        "use a man's voice",
+        "change to a female voice",
+        "woman voice please",
+        "use the default voice",
+        "lalaki na boses",
+        "babae na boses",
+        "palitan ang boses"
+      ]
+    },
+    {
+      "id": "blocked.account",
+      "description": "Account changes that are never done by voice: delete account, sign out, unfriend someone, change password",
+      "slots": [],
+      "examples": [
+        "delete my account",
+        "sign me out",
+        "log out",
+        "unfriend Ana",
+        "remove Ben as a friend",
+        "change my password",
+        "burahin ang account ko",
+        "mag-logout",
+        "i-unfriend si Ana"
+      ]
+    },
+    {
+      "id": "none",
+      "description": "Not a command for the app: small talk, questions about the world, or noise",
+      "slots": [],
+      "examples": [
+        "what's the weather",
+        "tell me a joke",
+        "how are you",
+        "what time is it in Japan",
+        "kumain ka na ba",
+        "sino ang presidente",
+        "hello",
+        "thank you",
+        "uhm",
+        "the quick brown fox",
+        "play some music",
+        "order pizza"
+      ]
+    }
+  ]
+}

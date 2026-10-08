@@ -36,6 +36,8 @@ export const FEATURES: OnboardingFeature[] = [
   },
 ];
 
+// The ids are the AccessibilityProfile ids in constants/profiles.ts —
+// choosing one here applies that profile's suggested settings.
 export interface AccessibilityOption {
   id: string;
   icon: IconName;
@@ -61,11 +63,5 @@ export const ACCESSIBILITY_OPTIONS: AccessibilityOption[] = [
     icon: 'eye-off-outline',
     title: 'Blind / Low Vision',
     description: 'Cannot see well or at all',
-  },
-  {
-    id: 'deaf-blind',
-    icon: 'accessibility-outline',
-    title: 'Deaf-Blind',
-    description: 'Both vision and hearing affected',
   },
 ];
