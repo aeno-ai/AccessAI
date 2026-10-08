@@ -1,5 +1,7 @@
 # Sign language models
 
+> **Full guide:** [`ai/MODEL_INTEGRATION.md`](../../MODEL_INTEGRATION.md). It covers retrained models, letters models (with each possible input format), Accel's AI models and moving sign recognition onto the phone.
+
 One folder per language and unit. The AI service loads whatever is here
 when it starts (`npm run dev` in `backend/`), and the app shows only what's
 available — e.g. "Letters (soon)" stays greyed out until a letters model is

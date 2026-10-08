@@ -68,6 +68,7 @@ All uncommitted, on top of the earlier uncommitted work. **Commit in logical pie
 | 10 | **Me/Them** pills: the ✓ is gone. | `conversation.tsx` |
 | 11 | **Privacy notice** updated (Accel, sign video, live SOS location, push), `TERMS_VERSION` → `2026-10-07` in both `legal` files. | `constants/legal.ts`, backend `constants/legal.js` |
 | 12 | _(2026-10-08)_ **Push test script** `npm run test-push` (one phone is enough). **Channel fix:** Android channel `sound` means a custom file, so `'default'` broke them; they are now `sos_alerts` / `sos_updates` / `chat_messages` with the normal sound. Channels can never change once created, hence the new ids. | backend `scripts/testPush.js`; frontend `notifications/push.ts`; backend `sosController.js`, `directMessageController.js` |
+| 13 | _(2026-10-08)_ **Model integration guide** for later: the four sign slots (ASL/FSL × words/letters), retrained models, letters options, Accel's AI models and commands, and on-phone sign. | `ai/MODEL_INTEGRATION.md` |
 
 ### Already verified (on this laptop)
 
@@ -239,10 +240,12 @@ With a fixed address, set `BACKEND_PUBLIC_URL` and the Google redirect URI once.
 
 ## 3. What's next (after testing)
 
-1. **Letters (fingerspelling) models**, when trained: drop them in `ai/models/sign/<fsl|asl>/letters/` (see the README there). If the model's input isn't the 32-frame Holistic one, `ai/app/sign/registry.py` needs a feature builder for it.
-2. **Better sign accuracy:** collect clips of your signers (the tester already saves `.npz` recordings) and retrain. Optional later: "Was this right?" in the app to collect corrections (needs consent).
+> **Plugging in models later (all four sign models, Accel's AI, on-phone sign): follow [`ai/MODEL_INTEGRATION.md`](ai/MODEL_INTEGRATION.md).**
+
+1. **Letters (fingerspelling) models**, when trained: drop them in `ai/models/sign/<fsl|asl>/letters/`. The input isn't decided yet: MODEL_INTEGRATION.md §C lists each option and its code places. Any letters model also needs the small app change in §C (no spaces between letters, plus an optional "spell" fix).
+2. **Better sign accuracy:** retrain with your own signers (the tester saves `.npz` recordings). Swap the models and compare (MODEL_INTEGRATION.md §A–B). Optional later: "Was this right?" in the app to collect corrections (needs consent).
 3. **iPhone push** once there's an Apple Developer account.
-4. **Hosting the AI** for real users (a small server with Ollama), or a lighter on-phone fallback.
+4. **Hosting the AI** for real users (MODEL_INTEGRATION.md §D), and/or **sign recognition on the phone** for offline use (§E).
 5. **Small:** a friend detail page (remove friend, SOS circle). Blocking users isn't built (unfriend only).
 
 ## 4. Decisions (change any)
