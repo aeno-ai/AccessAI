@@ -37,7 +37,6 @@ npm run create-admin -- --email you@example.com --reset
 
 | Role        | Can do                                                        |
 |-------------|---------------------------------------------------------------|
-| Viewer      | View users                                                    |
 | Admin       | View users, deactivate or reactivate their accounts           |
 | Super admin | Everything above, plus add, disable, re-role and reset admins |
 

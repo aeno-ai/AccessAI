@@ -181,6 +181,15 @@ export async function backfill(friendId: string): Promise<number> {
   }
 }
 
+/** How far each chat has been caught up (server time, ms), by friend. */
+export async function syncedUntilByFriend(): Promise<Map<string, number>> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{ friend_id: string; synced_until: number }>(
+    'SELECT friend_id, synced_until FROM dm_cursors',
+  );
+  return new Map(rows.map((row) => [row.friend_id, row.synced_until]));
+}
+
 /** Tells the server (and so the friend) that this chat has been read. */
 export async function markChatRead(friendId: string): Promise<void> {
   await apiFetch(`/messages/${friendId}/read`, { method: 'POST' });

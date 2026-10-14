@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
+  Keyboard,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { AuthInput } from '@/components/auth/AuthInput';
 import { GoogleSignInButton, OrDivider } from '@/components/auth/GoogleSignInButton';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
@@ -16,13 +17,16 @@ import { AppLogo } from '@/components/onboarding/Illustrations';
 import { KeyboardAvoider } from '@/components/ui/KeyboardAvoider';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { MaxContentWidth } from '@/constants/theme';
-import { apiFetch } from '@/api/apiClient';
+import { apiFetch, isApiError } from '@/api/apiClient';
 import type { UserRole } from '@/hooks/use-bootstrap';
 import { useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
+import { startCodeCooldown } from '@/hooks/use-code-cooldown';
 
 type RegisterResponse = {
-  // false if the verification email couldn't be sent just now.
+  // false if no new code was sent just now (one went out a moment ago).
   codeSent: boolean;
+  /** Seconds before another code can be asked for. */
+  retryAfter?: number;
 };
 
 export default function RegisterScreen() {
@@ -40,11 +44,17 @@ export default function RegisterScreen() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // The email already has an account: offer Log in (and say if it's a Google one).
+  const [emailInUse, setEmailInUse] = useState<{ google: boolean } | null>(null);
+
+  // Back from the code page: the button is ready again.
+  useFocusEffect(useCallback(() => setLoading(false), []));
 
   const consentGiven = acceptedTerms && (role !== 'pwd' || pwdDeclared);
 
   const handleRegister = async () => {
     setError('');
+    setEmailInUse(null);
     if (!role || !consentGiven) {
       return;
     }
@@ -52,6 +62,7 @@ export default function RegisterScreen() {
       setError('Passwords do not match');
       return;
     }
+    Keyboard.dismiss();
     setLoading(true);
     try {
       const data = await apiFetch<RegisterResponse>('/auth/register', {
@@ -70,15 +81,21 @@ export default function RegisterScreen() {
       });
       // The account can't be used until the emailed code is entered. That
       // screen logs the new user straight in, on into onboarding — no
-      // second password entry needed.
+      // second password entry needed. (The button stays busy until then;
+      // coming back here makes it ready again.)
+      // More than a minute means "too many today".
+      startCodeCooldown(email.trim(), 'verify_email', data.retryAfter, Number(data.retryAfter) > 60);
       router.push({
         pathname: '/verify-email',
         params: { email: email.trim(), codeSent: data.codeSent ? '1' : '0' },
       });
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Registration failed');
-    } finally {
       setLoading(false);
+      if (isApiError(e) && e.body.code === 'EMAIL_IN_USE') {
+        setEmailInUse({ google: e.body.google === true });
+        return;
+      }
+      setError(e instanceof Error ? e.message : 'Registration failed');
     }
   };
 
@@ -149,9 +166,25 @@ export default function RegisterScreen() {
           <TermsConsent accepted={acceptedTerms} onChange={setAcceptedTerms} />
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {emailInUse ? (
+            <View style={styles.inUse} accessibilityLiveRegion="polite">
+              <Text style={styles.errorText}>
+                This email already has an account.
+                {emailInUse.google ? ' It uses Continue with Google.' : ''}
+              </Text>
+              <TouchableOpacity
+                onPress={() => router.replace({ pathname: '/login', params: { email: email.trim() } })}
+                style={styles.inUseButton}
+                accessibilityRole="button"
+              >
+                <Text style={styles.linkAccent}>Log in instead</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
           <PrimaryButton
             title="Create Account"
+            loadingTitle="Creating account…"
             onPress={() => void handleRegister()}
             loading={loading}
             disabled={!firstName.trim() || !lastName.trim() || !email || !password || !role || !consentGiven}
@@ -197,6 +230,15 @@ const makeStyles = (t: AppTheme) =>
       color: t.colors.dangerText,
       textAlign: 'center',
       marginBottom: 12,
+    },
+    inUse: {
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    inUseButton: {
+      minHeight: 44,
+      justifyContent: 'center',
+      marginTop: -8,
     },
     linkWrap: {
       marginTop: 20,

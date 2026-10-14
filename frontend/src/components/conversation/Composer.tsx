@@ -23,18 +23,20 @@ import { QuickReplies } from '@/components/conversation/QuickReplies';
 import { SignPanel } from '@/components/conversation/SignPanel';
 import { IconButton } from '@/components/ui/IconButton';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
-import { usePreferences, type SignLanguage } from '@/hooks/use-preferences';
+import { usePreferences, type SignLanguage, type SignUnit } from '@/hooks/use-preferences';
 import { speechToTextSupported, useSpeechToText } from '@/hooks/use-speech-to-text';
 import { announce } from '@/utils/a11y';
 import { stopMixed } from '@/utils/speechHelper';
 
 /** What a screen can ask the composer to do. */
 export type ComposerHandle = {
-  /** Opens the mic (development build only; does nothing in Expo Go). */
+  /** Opens the mic (where the phone has speech-to-text). */
   startListening: () => void;
   /** Mic off, box cleared, sign mode off — for switching conversations. */
   reset: () => void;
   setSignMode: (on: boolean) => void;
+  /** Shows the quick replies. */
+  showReplies: () => void;
   /** Puts the cursor in the message box (opens the keyboard). */
   focusInput: () => void;
 };
@@ -44,7 +46,7 @@ type ComposerProps = {
   onSend: (text: string) => Promise<boolean>;
   /** Whose words the mic is capturing, shown while listening ("Them"). */
   listeningTo?: string;
-  /** Drawn just above the quick replies, e.g. the Me / Them switch. */
+  /** Drawn at the start of the tools row, e.g. the Me / Them switch. */
   aboveInput?: ReactNode;
   controlRef?: Ref<ComposerHandle>;
 };
@@ -61,15 +63,26 @@ const MIC_OPEN_VIBRATION = 40;
 const MIC_CLOSED_VIBRATION = [0, 30, 70, 30];
 
 /**
- * Sign words ("ME GO STORE TOMORROW") → a sentence, by the AI on the
- * AccessAI server. Null if it can't (offline): the words stay as they are.
+ * What was signed since the last pause: the box's text before it, and the
+ * words. When reading letters, `spelling` means the last word is still
+ * being spelled, so the next letter joins it ("H","E","Y" → "hey").
  */
-async function signWordsToSentence(words: string[], language: SignLanguage): Promise<string | null> {
+type Signed = { before: string; words: string[]; spelling: boolean };
+
+/** A tidy-up of signed text that can be undone (a sentence, or a spelling fix). */
+type Polish = { label: string; text: string; restoreText: string; restoreSigned: Signed | null };
+
+/**
+ * Asks the AI on the server to tidy signed text: `gloss` turns sign words
+ * ("ME GO STORE TOMORROW") into a sentence; `spell` fixes a fingerspelled
+ * word. Null if it can't (offline): the text stays as signed.
+ */
+async function polishSigned(text: string, kind: 'gloss' | 'spell', language: SignLanguage): Promise<string | null> {
   try {
     const result = await apiFetch<{ text: string }>('/assistant/polish', {
       method: 'POST',
       timeoutMs: 16000,
-      body: JSON.stringify({ text: words.join(' ').toUpperCase(), kind: 'gloss', language }),
+      body: JSON.stringify({ text: text.toUpperCase(), kind, language }),
     });
     return result.text?.trim() || null;
   } catch {
@@ -78,15 +91,16 @@ async function signWordsToSentence(words: string[], language: SignLanguage): Pro
 }
 
 /**
- * The bottom of every chat screen: speech-to-text mic, message box, sign
- * language toggle, Send, and the quick-reply bubbles. Shared by the in-person
- * Conversation screen and online chats with friends, so both have exactly
- * the same tools.
+ * The bottom of every chat screen, shared by the in-person Conversation
+ * screen and online chats with friends:
  *
- * Speech-to-text is real in a development or store build (see
- * hooks/use-speech-to-text.ts) and falls back to the keyboard's own
- * dictation in Expo Go. What's heard lands in the box to be checked before
- * sending.
+ *   sign language camera (when on)
+ *   one notice at a time (listening, a tip, "Undo")
+ *   tools: [Me | Them] (Conversation only) · Sign · Replies
+ *   quick replies (when Replies is on)
+ *   [mic] [message box] [send]
+ *
+ * What's heard or signed lands in the box to be checked before sending.
  */
 export function Composer({ onSend, listeningTo, aboveInput, controlRef }: ComposerProps) {
   const { prefs } = usePreferences();
@@ -97,17 +111,16 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [signMode, setSignMode] = useState(false);
-  // Sign language: the words signed since the last sentence, and what the
-  // box held before them — so the words can be replaced by a sentence (and
-  // the sentence undone back to the words).
-  const signSentence = useRef<{ before: string; words: string[] } | null>(null);
-  const [signWordCount, setSignWordCount] = useState(0);
-  const [lastSentence, setLastSentence] = useState<{ before: string; words: string[] } | null>(null);
+  const [repliesOpen, setRepliesOpen] = useState(prefs.showQuickReplies);
+  const signed = useRef<Signed | null>(null);
+  const [signCount, setSignCount] = useState(0);
+  const [lastPolish, setLastPolish] = useState<Polish | null>(null);
   const textRef = useRef(text);
   useEffect(() => {
     textRef.current = text;
   }, [text]);
-  // Expo Go only: shown after tapping the mic, pointing to the keyboard's own.
+  // Shown after tapping the mic on a phone without speech-to-text, pointing
+  // to the keyboard's own microphone key.
   const [showDictationHint, setShowDictationHint] = useState(false);
 
   // Everything heard in the current listening session, announced once the
@@ -171,6 +184,12 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
     void start();
   }, [listening, start]);
 
+  const clearSigned = () => {
+    signed.current = null;
+    setSignCount(0);
+    setLastPolish(null);
+  };
+
   useImperativeHandle(
     controlRef,
     () => ({
@@ -179,13 +198,14 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
         cancel();
         setText('');
         setSignMode(false);
-        signSentence.current = null;
-        setSignWordCount(0);
-        setLastSentence(null);
+        signed.current = null;
+        setSignCount(0);
+        setLastPolish(null);
         setShowDictationHint(false);
         clearMessage();
       },
       setSignMode,
+      showReplies: () => setRepliesOpen(true),
       focusInput: () => inputRef.current?.focus(),
     }),
     [startListening, cancel, clearMessage],
@@ -202,9 +222,7 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
       if (sent && fromBox) {
         setText('');
         setShowDictationHint(false);
-        signSentence.current = null;
-        setSignWordCount(0);
-        setLastSentence(null);
+        clearSigned();
       }
     } finally {
       setSending(false);
@@ -213,7 +231,7 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
 
   const handleMicPress = () => {
     if (!speechToTextSupported) {
-      // Expo Go / web: no recognizer of our own, so open the keyboard — its
+      // No recognizer of our own on this phone, so open the keyboard — its
       // microphone key dictates into the message box.
       inputRef.current?.focus();
       setShowDictationHint(true);
@@ -227,41 +245,79 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
   };
 
   // ---- sign language
-  const addSignedWord = (word: string) => {
-    const sentence = (signSentence.current ??= { before: textRef.current, words: [] });
-    sentence.words.push(word.toLowerCase());
-    setSignWordCount(sentence.words.length);
-    setLastSentence(null);
-    setText(joinText(sentence.before, sentence.words.join(' ')));
+  const showSigned = (entry: Signed) => setText(joinText(entry.before, entry.words.join(' ')));
+
+  // A word goes in after the others; a letter joins the word being spelled.
+  const addSigned = (sign: string, unit: SignUnit) => {
+    const entry = (signed.current ??= { before: textRef.current, words: [], spelling: false });
+    const piece = sign.toLowerCase();
+    if (unit === 'letters' && entry.spelling && entry.words.length) {
+      entry.words[entry.words.length - 1] += piece;
+    } else {
+      entry.words.push(piece);
+    }
+    entry.spelling = unit === 'letters';
+    setSignCount((count) => count + 1);
+    setLastPolish(null);
+    showSigned(entry);
   };
 
-  const undoSignedWord = () => {
-    const sentence = signSentence.current;
-    if (!sentence?.words.length) return;
-    sentence.words.pop();
-    setSignWordCount(sentence.words.length);
-    setText(joinText(sentence.before, sentence.words.join(' ')));
+  const undoSigned = () => {
+    const entry = signed.current;
+    if (!entry?.words.length) return;
+    const last = entry.words[entry.words.length - 1];
+    if (entry.spelling && last.length > 1) {
+      entry.words[entry.words.length - 1] = last.slice(0, -1);
+    } else {
+      entry.words.pop();
+    }
+    setSignCount((count) => Math.max(0, count - 1));
+    showSigned(entry);
   };
 
-  // Signing paused: the words become a sentence (online, if turned on).
-  const finishSignedSentence = async (language: SignLanguage) => {
-    const sentence = signSentence.current;
-    if (!sentence?.words.length) return;
-    signSentence.current = null;
-    setSignWordCount(0);
+  // Signing paused. Words: they become a sentence (online, if turned on).
+  // Letters: the word being spelled ends there, and its spelling is checked.
+  const finishSigned = async (language: SignLanguage, unit: SignUnit) => {
+    const entry = signed.current;
+    if (!entry?.words.length) return;
+    const shown = joinText(entry.before, entry.words.join(' '));
+
+    if (unit === 'letters') {
+      entry.spelling = false;
+      const index = entry.words.length - 1;
+      const spelled = entry.words[index];
+      if (!prefs.signAutoSentence || spelled.length < 2) return;
+      const restoreSigned = { ...entry, words: [...entry.words] };
+      const fixed = (await polishSigned(spelled, 'spell', language))?.toLowerCase();
+      // Only if nothing changed meanwhile.
+      if (!fixed || fixed === spelled || signed.current !== entry || textRef.current !== shown) return;
+      entry.words[index] = fixed;
+      const next = joinText(entry.before, entry.words.join(' '));
+      setText(next);
+      setLastPolish({ label: `Spelling fixed: “${spelled}” → “${fixed}”.`, text: next, restoreText: shown, restoreSigned });
+      announce(`Spelling fixed: ${fixed}`);
+      return;
+    }
+
+    signed.current = null;
+    setSignCount(0);
     if (!prefs.signAutoSentence) return;
-    const written = await signWordsToSentence(sentence.words, language);
+    const written = await polishSigned(entry.words.join(' '), 'gloss', language);
     // Only if nothing was typed meanwhile.
-    if (!written || textRef.current !== joinText(sentence.before, sentence.words.join(' '))) return;
-    setText(joinText(sentence.before, written));
-    setLastSentence(sentence);
+    if (!written || textRef.current !== shown) return;
+    const next = joinText(entry.before, written);
+    setText(next);
+    setLastPolish({ label: 'The signed words were made into a sentence.', text: next, restoreText: shown, restoreSigned: null });
     announce(`In the message box: ${written}`);
   };
 
-  const undoSentence = () => {
-    if (!lastSentence) return;
-    setText(joinText(lastSentence.before, lastSentence.words.join(' ')));
-    setLastSentence(null);
+  const undoPolish = () => {
+    if (!lastPolish) return;
+    if (textRef.current === lastPolish.text) {
+      setText(lastPolish.restoreText);
+      signed.current = lastPolish.restoreSigned;
+    }
+    setLastPolish(null);
   };
 
   const editQuickReply = (phrase: string) => {
@@ -272,86 +328,99 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
 
   const canSend = Boolean(text.trim()) && !listening && !sending;
   const speechMessage = speech.message;
+  const hasReplies = prefs.quickReplies.length > 0;
+
+  // One notice at a time, the most important first.
+  let notice: ReactNode = null;
+  if (phase !== 'idle') {
+    notice = (
+      <ListeningPanel
+        phase={phase}
+        level={speech.level}
+        interimText={speech.interimText}
+        startedAt={speech.startedAt}
+        offlineLanguageName={speech.offlineLanguageName}
+        listeningTo={listeningTo}
+        onStop={stop}
+      />
+    );
+  } else if (speechMessage) {
+    notice = (
+      <View style={styles.banner}>
+        <Ionicons
+          name={speechMessage.kind === 'error' ? 'alert-circle-outline' : 'information-circle-outline'}
+          size={18}
+          color={speechMessage.kind === 'error' ? colors.dangerText : colors.primary}
+        />
+        <View style={styles.flex}>
+          <Text style={styles.bannerText} accessibilityLiveRegion="polite">
+            {speechMessage.text}
+          </Text>
+          {speechMessage.canDownload ? (
+            <Pressable onPress={() => void speech.downloadOfflineModel()} style={styles.noticeAction} accessibilityRole="button">
+              <Text style={styles.noticeActionText}>Download so it works without internet</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <IconButton icon="close" label="Dismiss" iconSize={16} color={colors.textSecondary} onPress={clearMessage} />
+      </View>
+    );
+  } else if (lastPolish) {
+    notice = (
+      <View style={styles.banner}>
+        <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
+        <Text style={styles.bannerText}>{lastPolish.label}</Text>
+        <Pressable onPress={undoPolish} style={styles.undoButton} accessibilityRole="button" accessibilityLabel="Undo the change">
+          <Text style={styles.noticeActionText}>Undo</Text>
+        </Pressable>
+      </View>
+    );
+  } else if (showDictationHint) {
+    notice = (
+      <View style={styles.banner}>
+        <Ionicons name="mic-outline" size={18} color={colors.primary} />
+        <Text style={styles.bannerText} accessibilityLiveRegion="polite">
+          Tap the microphone key on your keyboard to speak your message.
+        </Text>
+        <IconButton icon="close" label="Dismiss" iconSize={16} color={colors.textSecondary} onPress={() => setShowDictationHint(false)} />
+      </View>
+    );
+  }
+
+  const toolToggle = (icon: keyof typeof Ionicons.glyphMap, label: string, a11yLabel: string, on: boolean, onPress: () => void) => (
+    <Pressable
+      style={[styles.tool, on && styles.toolOn]}
+      onPress={onPress}
+      accessibilityRole="switch"
+      accessibilityLabel={a11yLabel}
+      accessibilityState={{ checked: on }}
+    >
+      <Ionicons name={icon} size={18} color={on ? colors.onPrimary : colors.primary} />
+      <Text style={[styles.toolText, on && styles.toolTextOn]}>{label}</Text>
+    </Pressable>
+  );
 
   return (
     <View>
       {signMode ? (
         <SignPanel
-          onWord={addSignedWord}
-          onUndoWord={undoSignedWord}
-          onPause={(language) => void finishSignedSentence(language)}
-          pendingWords={signWordCount}
-        />
-      ) : null}
-      {lastSentence ? (
-        <View style={styles.banner}>
-          <Ionicons name="sparkles-outline" size={16} color={colors.primary} />
-          <Text style={[styles.bannerText, styles.flex]}>The signed words were made into a sentence.</Text>
-          <Pressable onPress={undoSentence} style={styles.noticeAction} accessibilityRole="button">
-            <Text style={styles.noticeActionText}>Undo sentence</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      {speechMessage ? (
-        <View style={styles.banner}>
-          <Ionicons
-            name={speechMessage.kind === 'error' ? 'alert-circle-outline' : 'information-circle-outline'}
-            size={16}
-            color={speechMessage.kind === 'error' ? colors.dangerText : colors.primary}
-          />
-          <View style={styles.flex}>
-            <Text style={styles.bannerText} accessibilityLiveRegion="polite">
-              {speechMessage.text}
-            </Text>
-            {speechMessage.canDownload ? (
-              <Pressable
-                onPress={() => void speech.downloadOfflineModel()}
-                style={styles.noticeAction}
-                accessibilityRole="button"
-              >
-                <Text style={styles.noticeActionText}>Download for offline use</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <IconButton icon="close" label="Dismiss" iconSize={16} color={colors.textSecondary} onPress={clearMessage} />
-        </View>
-      ) : showDictationHint ? (
-        <View style={styles.banner}>
-          <Ionicons name="mic-outline" size={16} color={colors.primary} />
-          <Text style={[styles.bannerText, styles.flex]} accessibilityLiveRegion="polite">
-            Tap the microphone key on your keyboard to speak your message.
-          </Text>
-          <IconButton
-            icon="close"
-            label="Dismiss"
-            iconSize={16}
-            color={colors.textSecondary}
-            onPress={() => setShowDictationHint(false)}
-          />
-        </View>
-      ) : null}
-
-      {phase !== 'idle' ? (
-        <ListeningPanel
-          phase={phase}
-          level={speech.level}
-          interimText={speech.interimText}
-          startedAt={speech.startedAt}
-          offlineLanguageName={speech.offlineLanguageName}
-          listeningTo={listeningTo}
-          onStop={stop}
+          onWord={addSigned}
+          onUndoWord={undoSigned}
+          onPause={(language, unit) => void finishSigned(language, unit)}
+          pendingWords={signCount}
         />
       ) : null}
 
-      {aboveInput}
+      {notice}
 
-      {!listening && prefs.showQuickReplies && prefs.quickReplies.length > 0 ? (
-        <QuickReplies
-          phrases={prefs.quickReplies}
-          onSend={(phrase) => void send(phrase, false)}
-          onEdit={editQuickReply}
-        />
+      <View style={styles.toolRow}>
+        <View style={styles.flex}>{aboveInput}</View>
+        {toolToggle('hand-left-outline', 'Sign', 'Sign language', signMode, () => setSignMode((on) => !on))}
+        {hasReplies ? toolToggle('flash-outline', 'Replies', 'Quick replies', repliesOpen, () => setRepliesOpen((on) => !on)) : null}
+      </View>
+
+      {repliesOpen && hasReplies && !listening ? (
+        <QuickReplies phrases={prefs.quickReplies} onSend={(phrase) => void send(phrase, false)} onEdit={editQuickReply} />
       ) : null}
 
       <View style={styles.composeRow}>
@@ -365,11 +434,7 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
             accessibilityHint={listening ? undefined : 'Turns what is said into text in the message box'}
             accessibilityState={{ busy: listening }}
           >
-            <Ionicons
-              name={listening ? 'mic' : 'mic-outline'}
-              size={22}
-              color={listening ? colors.onListening : colors.onPrimaryLight}
-            />
+            <Ionicons name={listening ? 'mic' : 'mic-outline'} size={22} color={listening ? colors.onListening : colors.onPrimaryLight} />
           </Pressable>
         </View>
         <TextInput
@@ -383,14 +448,6 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
           accessibilityLabel="Message"
           accessibilityHint={listening ? 'Listening. Words appear here when you pause.' : undefined}
           multiline
-        />
-        <IconButton
-          icon="hand-left-outline"
-          label={signMode ? 'Turn off sign language mode' : 'Turn on sign language mode'}
-          variant={signMode ? 'filled' : 'tinted'}
-          selected={signMode}
-          iconSize={20}
-          onPress={() => setSignMode((previous) => !previous)}
         />
         {/* Not while listening: the last words are still on their way. */}
         <IconButton
@@ -418,18 +475,18 @@ const makeStyles = (t: AppTheme) =>
       alignItems: 'center',
       gap: 8,
       backgroundColor: t.colors.primaryLight,
-      marginHorizontal: 16,
+      marginHorizontal: 12,
       marginBottom: 8,
-      paddingLeft: 10,
+      paddingLeft: 12,
       paddingVertical: 4,
       borderRadius: 12,
     },
     bannerText: {
       flex: 1,
       paddingVertical: 6,
-      fontSize: t.font(13),
+      fontSize: t.font(14),
       color: t.colors.textPrimary,
-      lineHeight: t.lineHeight(18),
+      lineHeight: t.lineHeight(19),
     },
     noticeAction: {
       alignSelf: 'flex-start',
@@ -437,14 +494,50 @@ const makeStyles = (t: AppTheme) =>
       justifyContent: 'center',
     },
     noticeActionText: {
-      fontSize: t.font(13),
-      fontWeight: t.weight('700'),
+      fontSize: t.font(14),
+      fontWeight: t.weight('800'),
       color: t.colors.primary,
+    },
+    undoButton: {
+      minHeight: 44,
+      minWidth: 56,
+      paddingHorizontal: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    toolRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 12,
+      marginBottom: 8,
+    },
+    tool: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      minHeight: 44,
+      paddingHorizontal: 14,
+      borderRadius: 22,
+      borderWidth: 1.5,
+      borderColor: t.colors.primary,
+      backgroundColor: t.colors.surface,
+    },
+    toolOn: {
+      backgroundColor: t.colors.primary,
+    },
+    toolText: {
+      fontSize: t.font(14),
+      fontWeight: t.weight('800'),
+      color: t.colors.primary,
+    },
+    toolTextOn: {
+      color: t.colors.onPrimary,
     },
     composeRow: {
       flexDirection: 'row',
       alignItems: 'flex-end',
-      gap: 6,
+      gap: 8,
       paddingHorizontal: 12,
       paddingBottom: 16,
     },

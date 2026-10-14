@@ -18,6 +18,7 @@ import { MaxContentWidth } from '@/constants/theme';
 import { useBootstrap, type UserRole } from '@/hooks/use-bootstrap';
 import { usePreferences } from '@/hooks/use-preferences';
 import { toProfile } from '@/constants/profiles';
+import { speechModule } from '@/audio/recognizer';
 import { saveAccessibilityPreference } from '@/utils/onboardingStorage';
 import { useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 
@@ -37,7 +38,7 @@ function pagesForRole(role: UserRole | null): OnboardingPage[] {
 export default function OnboardingPager() {
   const styles = useThemedStyles(makeStyles);
 
-  const { completeOnboarding, role } = useBootstrap();
+  const { completeOnboarding, role, userId } = useBootstrap();
   const { applyProfile } = usePreferences();
   const pages = useMemo(() => pagesForRole(role), [role]);
   const pageCount = pages.length;
@@ -51,10 +52,15 @@ export default function OnboardingPager() {
   // layout's guards switch this (already logged-in) user over to the app.
   const finishOnboarding = async () => {
     if (selectedOption) {
-      await saveAccessibilityPreference(selectedOption);
+      if (userId) await saveAccessibilityPreference(userId, selectedOption);
       // Text size, colors, reading aloud… set up for what they picked. All
       // of it can be changed later in Settings.
       applyProfile(toProfile(selectedOption));
+      // Blind / low vision turns on "Hey Accel", which needs the microphone:
+      // ask now, so it works from the very first screen.
+      if (toProfile(selectedOption) === 'blind-low-vision') {
+        await speechModule?.requestPermissionsAsync().catch(() => undefined);
+      }
     }
     await completeOnboarding();
   };

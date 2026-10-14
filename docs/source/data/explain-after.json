@@ -1,0 +1,91 @@
+{
+  "at": "2026-10-11T20:55:31.039Z",
+  "counts": {
+    "users": 12,
+    "friendships": 3,
+    "directMessages": 12,
+    "sosEvents": 7
+  },
+  "rows": [
+    {
+      "query": "friend list: my accepted friendships",
+      "plan": "FETCH ← OR ← [IXSCAN(requester_1_status_1) | IXSCAN(recipient_1_status_1)]",
+      "keysExamined": 2,
+      "docsExamined": 2,
+      "returned": 2,
+      "ms": 1
+    },
+    {
+      "query": "pending friend requests",
+      "plan": "FETCH ← OR ← [IXSCAN(requester_1_status_1) | IXSCAN(recipient_1_status_1)]",
+      "keysExamined": 0,
+      "docsExamined": 0,
+      "returned": 0,
+      "ms": 0
+    },
+    {
+      "query": "unread count in one chat (covered: index only)",
+      "plan": "PROJECTION_COVERED ← IXSCAN(friendshipId_1_senderId_1_createdAt_1)",
+      "keysExamined": 1,
+      "docsExamined": 0,
+      "returned": 1,
+      "ms": 1
+    },
+    {
+      "query": "last message in one chat",
+      "plan": "LIMIT ← FETCH ← IXSCAN(friendshipId_1_createdAt_1)",
+      "keysExamined": 1,
+      "docsExamined": 1,
+      "returned": 1,
+      "ms": 0
+    },
+    {
+      "query": "open a chat: newest 100 messages",
+      "plan": "LIMIT ← FETCH ← IXSCAN(friendshipId_1_createdAt_1)",
+      "keysExamined": 3,
+      "docsExamined": 3,
+      "returned": 3,
+      "ms": 0
+    },
+    {
+      "query": "my active SOS (newest first)",
+      "plan": "LIMIT ← FETCH ← IXSCAN(userId_1_status_1_createdAt_-1)",
+      "keysExamined": 0,
+      "docsExamined": 0,
+      "returned": 0,
+      "ms": 1
+    },
+    {
+      "query": "friends' active SOS",
+      "plan": "LIMIT ← FETCH ← IXSCAN(recipients_1_status_1_createdAt_-1)",
+      "keysExamined": 0,
+      "docsExamined": 0,
+      "returned": 0,
+      "ms": 0
+    },
+    {
+      "query": "SOS expiry job (every 10 min)",
+      "plan": "FETCH ← IXSCAN(status_1_expiresAt_1)",
+      "keysExamined": 0,
+      "docsExamined": 0,
+      "returned": 0,
+      "ms": 0
+    },
+    {
+      "query": "account purge job (hourly)",
+      "plan": "SUBPLAN ← PROJECTION_SIMPLE ← FETCH ← OR ← [IXSCAN(createdAt_1) | IXSCAN(deletionScheduledFor_1)]",
+      "keysExamined": 0,
+      "docsExamined": 0,
+      "returned": 0,
+      "ms": 0
+    },
+    {
+      "query": "push token cleanup",
+      "plan": "PROJECTION_SIMPLE ← FETCH ← IXSCAN(pushTokens.token_1)",
+      "keysExamined": 0,
+      "docsExamined": 0,
+      "returned": 0,
+      "ms": 1
+    }
+  ]
+}

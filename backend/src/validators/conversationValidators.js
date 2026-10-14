@@ -11,7 +11,8 @@ const syncConversationValidators = [
   shortText(body('clientId'), 100),
   shortText(body('title'), 200),
   shortText(body('mode'), 50),
-  body('messages').isArray().withMessage(GENERIC),
+  // The app sends at most 200 per request (only what's new since its last sync).
+  body('messages').isArray({ max: 500 }).withMessage(GENERIC),
   shortText(body('messages.*.clientId'), 100),
   body('messages.*.sender').isString().withMessage(GENERIC).bail().isIn(['me', 'them']).withMessage(GENERIC),
   body('messages.*.body')

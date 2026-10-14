@@ -1,0 +1,8 @@
+FSL WORDS model goes here: FSL-105 (105 words).
+
+  model.keras   (or model.tflite)          required (not in git: 13 MB)
+  labels.json   {"0": "...", "1": "..."}   required, from the SAME training run
+  meta.json     optional (see ../../README.md)
+
+To swap in a retrained model, replace BOTH files, then restart `npm run dev`
+in backend/. Full guide: ai/MODEL_INTEGRATION.md, sections A and B.

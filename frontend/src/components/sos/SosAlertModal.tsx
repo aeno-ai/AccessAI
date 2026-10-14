@@ -1,11 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { appSpeech } from '@/audio/recognizer';
+import { offlineNote, spokenDistance, useSosWhereabouts } from '@/components/sos/use-sos-whereabouts';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
+import { usePreferences } from '@/hooks/use-preferences';
+import { useScreenReader } from '@/hooks/use-screen-reader';
 import { announce } from '@/utils/a11y';
-import { stopMixed } from '@/utils/speechHelper';
-import { mapsLink, type FriendSos, type SosAnswer } from '@/utils/sos';
+import { speakMixed, stopMixed } from '@/utils/speechHelper';
+import { directionsLink, mapsLink, type FriendSos, type SosAnswer } from '@/utils/sos';
 
 // Long buzz, pause — repeated until the alert is answered.
 const ALERT_PATTERN = [0, 800, 500];
@@ -32,6 +36,8 @@ type SosAlertModalProps = {
  * in sends an SOS — live while AccessAI is open, or the moment they open it
  * after missing it. Shows who, their message, when, and where (the map
  * follows their newest position), and keeps vibrating until answered.
+ * Where is in words: "Near Rizal Ave", "About 350 m north of you · accurate
+ * to 15 m" (the distance is also read aloud once), with walking directions.
  * "I'm on my way" and "I've seen it" are sent to the person in trouble,
  * who hears them read aloud.
  */
@@ -40,6 +46,31 @@ export function SosAlertModal({ sos, ended, onRespond, onClose }: SosAlertModalP
   const styles = useThemedStyles(makeStyles);
   const [busy, setBusy] = useState<SosAnswer | null>(null);
   const [note, setNote] = useState('');
+  const { prefs } = usePreferences();
+  const screenReaderOn = useScreenReader();
+  const { place, distance, accuracy } = useSosWhereabouts(sos);
+
+  // The distance, read aloud once it's known — after the alert itself has
+  // been read (two voices at once would be impossible to follow).
+  const saidDistance = useRef(false);
+  useEffect(() => {
+    if (!distance || ended || saidDistance.current) return;
+    saidDistance.current = true;
+    const line = `${sos.name} is ${spokenDistance(distance)}.`;
+    if (screenReaderOn) {
+      announce(line);
+      return;
+    }
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      if (appSpeech().text === null || tries > 30) {
+        clearInterval(timer);
+        void speakMixed(line, { rate: prefs.speechRate, sos: true });
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [distance, ended, sos.name, screenReaderOn, prefs.speechRate]);
 
   useEffect(() => {
     if (!sos.isTest && !ended) {
@@ -52,7 +83,7 @@ export function SosAlertModal({ sos, ended, onRespond, onClose }: SosAlertModalP
 
   const dismiss = () => {
     Vibration.cancel();
-    stopMixed();
+    stopMixed({ sos: true });
     onClose();
   };
 
@@ -75,8 +106,10 @@ export function SosAlertModal({ sos, ended, onRespond, onClose }: SosAlertModalP
     }
   };
 
-  const time = new Date(sos.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const time = new Date(sos.occurredAt ?? sos.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   const where = sos.location;
+  const offline = offlineNote(sos, timeAgo);
+  const howFar = [distance, accuracy].filter(Boolean).join(' · ');
 
   return (
     <Modal visible animationType="fade" onRequestClose={dismiss} statusBarTranslucent>
@@ -89,13 +122,18 @@ export function SosAlertModal({ sos, ended, onRespond, onClose }: SosAlertModalP
           </Text>
           <Text style={styles.message}>“{sos.message}”</Text>
           <Text style={styles.meta}>
-            Sent at {time} ({timeAgo(sos.createdAt)})
+            Sent at {time} ({timeAgo(sos.occurredAt ?? sos.createdAt)})
           </Text>
-          <Text style={styles.meta}>
-            {where
-              ? `${sos.place ? `Near ${sos.place}. ` : ''}Location updated ${timeAgo(where.at)}.`
-              : 'No location was shared.'}
-          </Text>
+          {offline ? <Text style={styles.meta}>{offline}</Text> : null}
+          {where ? (
+            <>
+              {place ? <Text style={styles.where}>Near {place}</Text> : null}
+              {howFar ? <Text style={styles.where}>{howFar}</Text> : null}
+              <Text style={styles.meta}>Location updated {timeAgo(where.at)}.</Text>
+            </>
+          ) : (
+            <Text style={styles.meta}>No location was shared.</Text>
+          )}
           {sos.isTest ? <Text style={styles.meta}>This is only a test — nothing is wrong.</Text> : null}
           {sos.myResponse === 'on_my_way' && !ended ? (
             <Text style={styles.meta}>You said you&apos;re on your way.</Text>
@@ -109,15 +147,26 @@ export function SosAlertModal({ sos, ended, onRespond, onClose }: SosAlertModalP
 
         <View style={styles.actions}>
           {where ? (
-            <Pressable
-              style={styles.primary}
-              onPress={() => void Linking.openURL(mapsLink(where))}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${sos.name}'s location in maps`}
-            >
-              <Ionicons name="map-outline" size={22} color={colors.dangerText} />
-              <Text style={styles.primaryText}>Open map</Text>
-            </Pressable>
+            <View style={styles.pair}>
+              <Pressable
+                style={[styles.primary, styles.half]}
+                onPress={() => void Linking.openURL(directionsLink(where))}
+                accessibilityRole="button"
+                accessibilityLabel={`Walking directions to ${sos.name}`}
+              >
+                <Ionicons name="navigate-outline" size={22} color={colors.dangerText} />
+                <Text style={styles.primaryText}>Directions</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.primary, styles.half]}
+                onPress={() => void Linking.openURL(mapsLink(where))}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${sos.name}'s location in maps`}
+              >
+                <Ionicons name="map-outline" size={22} color={colors.dangerText} />
+                <Text style={styles.primaryText}>Map</Text>
+              </Pressable>
+            </View>
           ) : null}
           {!ended && sos.myResponse !== 'on_my_way' ? (
             <Pressable
@@ -201,6 +250,20 @@ const makeStyles = (t: AppTheme) =>
       lineHeight: t.lineHeight(21),
       color: t.colors.onDanger,
       textAlign: 'center',
+    },
+    where: {
+      fontSize: t.font(18),
+      lineHeight: t.lineHeight(25),
+      fontWeight: t.weight('800'),
+      color: t.colors.onDanger,
+      textAlign: 'center',
+    },
+    pair: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    half: {
+      flex: 1,
     },
     actions: {
       padding: 16,

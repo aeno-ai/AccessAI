@@ -15,6 +15,7 @@ const {
   resolveSOS,
   respondToSOS,
   listActive,
+  listRecent,
 } = require('../controllers/sosController');
 
 router.use(protect, sosLimiter);
@@ -36,6 +37,8 @@ router.patch('/:id/resolve', requirePwd, sosIdValidators, validate, resolveSOS);
 
 // The friends' side — friends can be any role.
 router.get('/active', listActive);
+// Home's "Recent SOS": the last week, ended ones too (see listRecent).
+router.get('/recent', listRecent);
 router.post('/:id/respond', respondValidators, validate, respondToSOS);
 
 module.exports = router;

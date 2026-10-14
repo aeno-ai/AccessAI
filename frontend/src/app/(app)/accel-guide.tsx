@@ -1,20 +1,31 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
 import { useAccel } from '@/accel/AccelProvider';
-import { INTENTS, type IntentCategory } from '@/accel/catalog';
+import { INTENTS, type IntentCategory, type IntentInfo } from '@/accel/catalog';
 import { IconButton } from '@/components/ui/IconButton';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { usePreferences } from '@/hooks/use-preferences';
 import { speakMixed } from '@/utils/speechHelper';
+import { goBack } from '@/utils/navigation';
 
-const CATEGORIES: IntentCategory[] = ['Emergency', 'Go to', 'Friends & messages', 'Read aloud', 'Voice & text'];
+const CATEGORIES: IntentCategory[] = [
+  'Emergency',
+  'Go to',
+  'Friends & messages',
+  'Read aloud',
+  'Conversation mode',
+  'Learn',
+  'Voice & text',
+];
 
-const examples = (category: IntentCategory) =>
-  Object.values(INTENTS)
-    .filter((intent) => intent.category === category && 'guide' in intent && intent.guide)
-    .map((intent) => (intent as { guide: { en: string; fil?: string } }).guide);
+type Example = { en: string; fil?: string; screen?: string };
+
+// A command that works on one screen only says which ("In Chats").
+const examples = (category: IntentCategory): Example[] =>
+  Object.values(INTENTS as Record<string, IntentInfo>)
+    .filter((intent) => intent.category === category && intent.guide)
+    .map((intent) => ({ ...intent.guide!, screen: intent.screen }));
 
 /**
  * "What Accel can do": every command by category, in English and Filipino.
@@ -36,15 +47,17 @@ export default function AccelGuideScreen() {
     <ScreenShell maxWidth={MaxContentWidth.app}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <IconButton icon="arrow-back" label="Back" variant="tinted" onPress={() => (router.canGoBack() ? router.back() : router.navigate('/'))} />
+          <IconButton icon="arrow-back" label="Back" variant="tinted" onPress={() => goBack()} />
           <Text style={styles.title} accessibilityRole="header">
             What Accel can do
           </Text>
         </View>
+        <Text style={styles.intro}>Accel is designed for people who are blind or have low vision.</Text>
         <Text style={styles.intro}>
           Start Accel with the Accel button, Magic Tap on iPhone, or by saying &quot;Hey Accel&quot;. Speak naturally — in
           English, Filipino or Taglish. Accel says back what it understood and waits for yes or no. It never deletes your
-          account, signs you out or removes friends by voice.
+          account, signs you out or removes friends by voice, and it only works inside AccessAI. On any screen, ask
+          &quot;What can I do here?&quot;.
         </Text>
         <Pressable style={styles.readAll} onPress={readAll} accessibilityRole="button">
           <Text style={styles.readAllText}>Read all of this aloud</Text>
@@ -61,6 +74,7 @@ export default function AccelGuideScreen() {
                 <View style={styles.rowText}>
                   <Text style={styles.example}>“{example.en}”</Text>
                   {example.fil ? <Text style={styles.fil}>“{example.fil}”</Text> : null}
+                  {example.screen ? <Text style={styles.fil}>In {example.screen}</Text> : null}
                 </View>
                 {enabled ? (
                   <Pressable

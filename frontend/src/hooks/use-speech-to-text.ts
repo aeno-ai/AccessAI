@@ -45,6 +45,11 @@ export type SpeechMessage = {
   kind: 'error' | 'info';
   /** Android only: a language can be downloaded for offline use. */
   canDownload?: boolean;
+  /**
+   * Offline, and the phone has no offline English yet. Accel says how to get
+   * it (the Google app's "Offline speech recognition").
+   */
+  needsOfflineEnglish?: boolean;
 };
 
 const normalizeLocale = (locale: string) => locale.replace('_', '-').toLowerCase();
@@ -79,15 +84,27 @@ type Attempt = {
   onDevice: boolean;
   /** Android: a specific recognizer instead of the phone's default voice input. */
   servicePackage?: string;
+  /**
+   * Android, offline: ask the phone's normal voice input (usually the Google
+   * app) to use its own offline speech. Most phones can download English for
+   * it, even those without Android's built-in offline recognizer.
+   */
+  preferOffline?: boolean;
 };
 
-type RecognitionPlan = { attempts: Attempt[] } | { message: SpeechMessage };
+type RecognitionPlan =
+  | {
+      attempts: Attempt[];
+      /** Android's built-in offline recognizer could download a language. */
+      downloadable?: boolean;
+    }
+  | { message: SpeechMessage };
 
 // Google's own online recognizers. Tried when the phone's default voice
 // input — sometimes the manufacturer's — turns the language down.
 const GOOGLE_SERVICES = ['com.google.android.tts', 'com.google.android.googlequicksearchbox'];
 
-function googleFallbackService(module: SpeechModule): string | null {
+export function googleFallbackService(module: SpeechModule): string | null {
   try {
     const available = module.getSpeechRecognitionServices();
     const current = module.getDefaultRecognitionService().packageName;
@@ -138,21 +155,33 @@ async function planRecognition(module: SpeechModule, preference: OfflineSpeechLa
           attempts.push({ lang: localeFor(language), language, onDevice: false, servicePackage: google });
         }
       }
-    } else if (onDevice) {
-      for (const language of order) {
-        const installed = findLocale(onDevice.installedLocales, localeFor(language));
-        if (installed) {
-          attempts.push({ lang: installed, language, onDevice: true, servicePackage: ANDROID_ON_DEVICE_SERVICE });
+    } else {
+      if (onDevice) {
+        for (const language of order) {
+          const installed = findLocale(onDevice.installedLocales, localeFor(language));
+          if (installed) {
+            attempts.push({ lang: installed, language, onDevice: true, servicePackage: ANDROID_ON_DEVICE_SERVICE });
+          }
         }
       }
-    }
-    if (attempts.length > 0) {
-      return { attempts };
+      // Then the phone's normal voice input, asked to work offline: the
+      // Google app has its own downloadable offline speech, so this works on
+      // phones without the built-in offline recognizer (most non-Pixels).
+      const google = googleFallbackService(module);
+      for (const language of order) {
+        attempts.push({ lang: localeFor(language), language, onDevice: false, preferOffline: true });
+        if (google) {
+          attempts.push({ lang: localeFor(language), language, onDevice: false, preferOffline: true, servicePackage: google });
+        }
+      }
     }
 
     const downloadable = Boolean(
       onDevice && order.some((language) => findLocale(onDevice.locales, localeFor(language))),
     );
+    if (attempts.length > 0) {
+      return { attempts, downloadable };
+    }
     return {
       message: {
         kind: 'error',
@@ -203,12 +232,27 @@ const RETRYABLE: SpeechRecognition.ExpoSpeechRecognitionErrorCode[] = [
   'client',
 ];
 
+// Offline, a "network" error just means this way of listening needs the
+// internet — the next offline way may still work.
+const canRetry = (error: RecognitionError, attempt: Attempt | undefined) =>
+  RETRYABLE.includes(error.error) || (attempt?.preferOffline === true && error.error === 'network');
+
 // Android's own error number for "this language is supported, but not
 // downloaded to the phone yet" (SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE).
 const ANDROID_LANGUAGE_NOT_DOWNLOADED = 13;
 
-function errorMessage({ error, code }: RecognitionError, attempt: Attempt | null): SpeechMessage {
+function errorMessage({ error, code }: RecognitionError, attempt: Attempt | null, downloadable = false): SpeechMessage {
   const name = attempt ? LANGUAGE_NAMES[attempt.language] : 'Speech';
+  // Every offline way failed: the phone has no offline speech yet.
+  if (attempt?.preferOffline && (error === 'network' || error === 'language-not-supported' || error === 'service-not-allowed')) {
+    if (__DEV__) console.warn(`Speech-to-text offline failed: ${error}${code !== undefined ? ` ${code}` : ''}, ${attempt.lang}`);
+    return {
+      kind: 'error',
+      text: 'Speech-to-text needs the internet until offline speech is on this phone. To get it once: open the Google app, then Settings, Voice, Offline speech recognition, and download English.',
+      canDownload: downloadable,
+      needsOfflineEnglish: true,
+    };
+  }
   const text = ((): string => {
     switch (error) {
       case 'no-speech':
@@ -243,17 +287,18 @@ function errorMessage({ error, code }: RecognitionError, attempt: Attempt | null
     }
   })();
 
-  // Development builds also show what actually happened, so a failure on a
-  // tester's phone can be diagnosed without a cable and logs.
-  const details = __DEV__
-    ? ` [${error}${code !== undefined ? ` ${code}` : ''}${
+  // What actually happened goes to the developer log, never on screen.
+  if (__DEV__) {
+    console.warn(
+      `Speech-to-text failed: ${error}${code !== undefined ? ` ${code}` : ''}${
         attempt ? `, ${attempt.lang}, ${attempt.onDevice ? 'on-device' : 'online'}${attempt.servicePackage ? ` via ${attempt.servicePackage}` : ''}` : ''
-      }]`
-    : '';
+      }`,
+    );
+  }
 
   return {
     kind: 'error',
-    text: text + details,
+    text,
     canDownload: Platform.OS === 'android' && error === 'language-not-supported' && code === ANDROID_LANGUAGE_NOT_DOWNLOADED,
   };
 }
@@ -303,6 +348,7 @@ export function useSpeechToText({
   // The current listening session: the ways to try, which one is running,
   // whether anything has been heard yet, and the error waiting for "end".
   const attemptsRef = useRef<Attempt[]>([]);
+  const downloadableRef = useRef(false);
   const attemptIndexRef = useRef(0);
   const heardRef = useRef(false);
   const pendingErrorRef = useRef<RecognitionError | null>(null);
@@ -323,16 +369,15 @@ export function useSpeechToText({
 
   const runAttempt = useCallback((attempt: Attempt) => {
     setOfflineLanguageName(attempt.onDevice ? LANGUAGE_NAMES[attempt.language] : null);
-    startSession(owner, {
+    const androidIntentOptions: Partial<SpeechRecognition.AndroidIntentOptions> = {
       // Commands: a few words, so the recognizer expects a short, search-like
       // phrase rather than a long dictated message.
-      ...(mode === 'command'
-        ? {
-            iosTaskHint: 'search' as const,
-            androidIntentOptions: { EXTRA_LANGUAGE_MODEL: 'web_search' },
-            contextualStrings: contextRef.current,
-          }
-        : {}),
+      ...(mode === 'command' ? { EXTRA_LANGUAGE_MODEL: 'web_search' as const } : {}),
+      ...(attempt.preferOffline ? { EXTRA_PREFER_OFFLINE: true } : {}),
+    };
+    startSession(owner, {
+      ...(mode === 'command' ? { iosTaskHint: 'search' as const, contextualStrings: contextRef.current } : {}),
+      ...(Object.keys(androidIntentOptions).length ? { androidIntentOptions } : {}),
       lang: attempt.lang,
       interimResults: true,
       // Stops by itself after a pause (works on every Android version);
@@ -397,7 +442,7 @@ export function useSpeechToText({
         pendingErrorRef.current = null;
         const attempts = attemptsRef.current;
         const next = attemptIndexRef.current + 1;
-        if (error && !heardRef.current && RETRYABLE.includes(error.error) && next < attempts.length) {
+        if (error && !heardRef.current && canRetry(error, attempts[attemptIndexRef.current]) && next < attempts.length) {
           attemptIndexRef.current = next;
           setPhase('starting');
           runAttempt(attempts[next]);
@@ -406,7 +451,7 @@ export function useSpeechToText({
         release(owner);
         resetToIdle();
         if (error) {
-          setMessage(errorMessage(error, attempts[attemptIndexRef.current] ?? null));
+          setMessage(errorMessage(error, attempts[attemptIndexRef.current] ?? null, downloadableRef.current));
         }
       },
     });
@@ -446,6 +491,7 @@ export function useSpeechToText({
       // Take the mic (stopping "Hey Accel" or another screen's session first).
       await acquire(owner);
       attemptsRef.current = plan.attempts;
+      downloadableRef.current = plan.downloadable ?? false;
       attemptIndexRef.current = 0;
       heardRef.current = false;
       pendingErrorRef.current = null;

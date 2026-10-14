@@ -39,7 +39,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
       <View style={styles.header}>
         <AppLogo size={40} />
         <View style={styles.headerText}>
-          <Text style={styles.wordmark}>PDAccessAI</Text>
+          <Text style={styles.wordmark}>AccessAI</Text>
           {firstName ? <Text style={styles.signedInAs}>Signed in as {firstName}</Text> : null}
           {friendCode ? (
             <Text

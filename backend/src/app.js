@@ -4,9 +4,12 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const helmet = require('helmet');
+const compression = require('compression');
+const mongoose = require('mongoose');
 const { generalLimiter } = require('./middleware/rateLimiter');
 const rejectOperatorKeys = require('./middleware/rejectOperatorKeys');
 const { GENERIC } = require('./validators/common');
+const { callAi } = require('./utils/aiClient');
 
 const app = express();
 
@@ -37,10 +40,22 @@ const corsOptions = allowedOrigins
     }
   : undefined;
 
+// The Cloudflare tunnel (and the admin panel's dev proxy) run on this same
+// computer and pass the visitor's real address along. Trusting only them
+// ("loopback") lets the rate limits see real visitors instead of counting
+// everyone who comes through the tunnel as one.
+app.set('trust proxy', 'loopback');
+
 app.use(helmet());              // secure headers — from your security-layer discussion, baked in from line one
 app.use(cors(corsOptions));     // controls which origins can call this API
-app.use(generalLimiter);        // baseline anti-abuse limit on every route
-app.use(express.json());        // lets Express read JSON request bodies
+// Smaller answers over slow mobile data (friend lists, chats). Not for the
+// sign-language routes: their answers are tiny and the time matters more.
+app.use(compression({ filter: (req, res) => !req.path.startsWith('/api/sign') && compression.filter(req, res) }));
+app.use(generalLimiter);        // baseline anti-abuse limit on every route (token bucket)
+// Conversation backup sends up to 200 messages at a time (up to 2000
+// characters each), so it gets more room than everything else.
+app.use('/api/conversations/sync', express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '256kb' })); // lets Express read JSON request bodies (bigger → 413)
 app.use(rejectOperatorKeys);    // no "$..." / dotted keys in bodies or URL params (NoSQL injection)
 app.use(cookieParser());        // reads the admin panel's session cookie into req.cookies
 
@@ -51,8 +66,23 @@ const authRoutes = require('./routes/authRoutes');
 app.use('/api/auth', authRoutes);
 
 // ============= Health Routes ==============
+// Liveness: the process is up.
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// Readiness: can it do its job? 503 unless the database is connected, so a
+// load balancer or uptime check stops sending people to a copy that can't
+// answer. The AI service is reported, not required — the app works without it.
+app.get('/api/health', async (req, res) => {
+  const database = mongoose.connection.readyState === 1;
+  let ai = false;
+  try {
+    ai = (await callAi('/health', { timeoutMs: 1500 })).ready === true;
+  } catch {
+    // Not running or still loading: reported as false.
+  }
+  res.status(database ? 200 : 503).json({ status: database ? 'ok' : 'unavailable', database, ai });
 });
 
 // Easter egg route to see if the server is running
@@ -84,6 +114,10 @@ app.use('/api/messages', directMessageRoutes);
 // and messages reach it even when AccessAI is closed (utils/push.js).
 const pushRoutes = require('./routes/pushRoutes');
 app.use('/api/push', pushRoutes);
+
+// ============= Learn (the sign-language course) ==============
+const learnRoutes = require('./routes/learnRoutes');
+app.use('/api/learn', learnRoutes);
 
 // ============= AI: Accel voice assistant & sign language ==============
 // Thin, authenticated doors to the Python AI service (ai/ folder, started by
@@ -129,11 +163,18 @@ function friendlyError(err) {
   return [500, 'Something went wrong on our side. Please try again.'];
 }
 
+// What went wrong with a request the caller got wrong (4xx), in one line.
+const shortReason = (err) =>
+  err.type === 'entity.parse.failed' ? 'invalid JSON' : err.type ?? err.name ?? String(err.message).slice(0, 80);
+
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
-  console.error(err);
   const [status, message] = friendlyError(err);
+  // A bad request (e.g. broken JSON) is one short line; only real faults on
+  // our side get the full error and stack trace.
+  if (status < 500) console.warn(`[${status}] ${req.method} ${req.originalUrl.split('?')[0]}: ${shortReason(err)}`);
+  else console.error(err);
   res.status(status).json({ message });
 });
 

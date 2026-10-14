@@ -26,6 +26,15 @@ function getTransporter() {
       port,
       secure: port === 465,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      // Keeps the logged-in connection open between emails: logging in to
+      // Gmail takes ~1.2 s, so only the first email pays for it.
+      pool: true,
+      maxConnections: 2,
+      // Never hang for minutes on a bad network (nodemailer's defaults are
+      // up to 10 minutes).
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 20000,
     });
   }
   return transporter;
@@ -48,4 +57,23 @@ async function sendMail({ to, subject, text }) {
   });
 }
 
-module.exports = { sendMail };
+/**
+ * Logs whether the email login works, once at server start — so a revoked
+ * Gmail App Password shows up here, not as codes that silently never arrive.
+ */
+async function checkMailLogin() {
+  if (!isConfigured()) {
+    console.log('[mail] SMTP not set up: codes are printed in this terminal instead of emailed.');
+    return;
+  }
+  const started = Date.now();
+  try {
+    await getTransporter().verify();
+    console.log(`[mail] Gmail login OK (${((Date.now() - started) / 1000).toFixed(1)} s)`);
+  } catch (error) {
+    const hint = error.responseCode === 535 ? ' — the App Password was refused (revoked or mistyped), see HANDOFF §2.6' : '';
+    console.error(`[mail] Gmail login FAILED: ${error.responseCode ? `${error.responseCode} ` : ''}${error.message}${hint}`);
+  }
+}
+
+module.exports = { sendMail, checkMailLogin };

@@ -27,7 +27,7 @@ from .index import IntentIndex  # noqa: E402
 from .interpret import interpret  # noqa: E402
 from .polish import polish  # noqa: E402
 from .sign import registry  # noqa: E402
-from .sign.session import SessionGone, SessionStore, process_bytes  # noqa: E402
+from .sign.session import SessionGone, SessionsBusy, SessionStore, process_bytes  # noqa: E402
 
 state = {"ready": False, "status": "starting", "catalog": None, "index": None, "sign_models": {}}
 sessions = SessionStore()
@@ -86,6 +86,7 @@ async def lifespan(_app):
     task = asyncio.create_task(bootstrap())
     yield
     task.cancel()
+    await ollama.close()
 
 
 app = FastAPI(title="AccessAI AI service", lifespan=lifespan, docs_url="/docs" if config.DEBUG else None, redoc_url=None)
@@ -111,7 +112,7 @@ class InterpretRequest(BaseModel):
 
 class PolishRequest(BaseModel):
     text: str = Field(min_length=1, max_length=500)
-    kind: str = Field(pattern="^(message|gloss)$")
+    kind: str = Field(pattern="^(message|gloss|spell)$")
     language: str = Field(default="auto", pattern="^(en|fil|fsl|asl|auto)$")
 
 
@@ -174,7 +175,11 @@ async def start_session(body: StartSession):
     if model is None or not model.available:
         raise HTTPException(409, f"{body.language.upper()} {body.unit}: {model.problem if model else 'unknown'}")
     min_confidence = body.minConfidence or model.min_confidence
-    session = await run_in_threadpool(sessions.create, body.owner, model, min_confidence, body.flip)
+    try:
+        session = await run_in_threadpool(sessions.create, body.owner, model, min_confidence, body.flip)
+    except SessionsBusy as error:
+        # The backend turns this into "Sign language isn't working right now."
+        raise HTTPException(503, "busy") from error
     return {"sessionId": session.id, "language": body.language, "unit": body.unit, "minConfidence": min_confidence}
 
 

@@ -4,8 +4,8 @@ const mongoose = require('mongoose');
 // PWD…). One document per pair, whoever asked first.
 const friendshipSchema = new mongoose.Schema(
   {
-    requester: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    requester: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     // The two ids sorted and joined, so a pair can only ever have one
     // document — whichever of them sends the request.
     pairKey: { type: String, required: true, unique: true },
@@ -22,6 +22,12 @@ const friendshipSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+// "My friends" / "my requests" always ask for one side AND a status, so
+// each side gets a {side, status} index (the friend list, the SOS circle,
+// who to tell when someone comes online).
+friendshipSchema.index({ requester: 1, status: 1 });
+friendshipSchema.index({ recipient: 1, status: 1 });
 
 friendshipSchema.statics.pairKeyOf = (a, b) => [String(a), String(b)].sort().join(':');
 

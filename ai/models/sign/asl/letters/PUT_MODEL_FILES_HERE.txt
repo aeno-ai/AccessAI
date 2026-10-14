@@ -1,7 +1,17 @@
-Put the ASL fingerspelling (letters) model here when it is trained:
+ASL LETTERS (fingerspelling) model goes here.
 
-  model.keras   (or model.tflite)
-  labels.json   (output index -> letter, e.g. {"0": "A", "1": "B"})
-  meta.json     (optional; see ../../README.md)
+  model.keras   (or model.tflite)          required
+  labels.json   {"0": "A", "1": "B", ...}  required, from the SAME training run
+  meta.json     optional, pick ONE of the two examples:
 
-Then restart `npm run dev`. Until then the app shows "Letters (soon)".
+    meta.example.json          the model takes 32 frames x 69 Holistic points
+                               (same input as the word models)
+    meta.hand21.example.json   the model takes ONE frame of one hand (21 points)
+                               -> also copy the notebook's normalization into
+                                  normalize_hand() in ai/app/sign/registry.py
+
+  Copy the example you need to "meta.json", then restart `npm run dev` in backend/.
+  The log says "Sign model ASL letters: N signs" when it loaded.
+  Until then the app shows Letters as "Coming soon".
+
+Full guide: ai/MODEL_INTEGRATION.md, section C.

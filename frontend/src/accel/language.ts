@@ -9,8 +9,6 @@ import type { Friend } from '@/db/friends';
 
 // Polite or filler words that don't change the meaning.
 const FILLERS = /\b(please|pls|plz|po|naman|nga|lang|ba|paki|uh+|um+|ah+|eh|hey|hi|ok(ay)?|uy|hoy|can you|could you|would you|i want you to|accel can you)\b/g;
-// "Hey Accel" and what speech recognition makes of it.
-export const WAKE_WORD = /\b(hey|hi|ok(ay)?|uy|hoy)?\s*(accel|axel|axle|excel|aksel|aksyel|acel|access ?a\.? ?i\.?|accessai)\b[,.!?]?/i;
 
 export function normalize(text: string): string {
   return text
@@ -23,16 +21,131 @@ export function normalize(text: string): string {
     .trim();
 }
 
-/** What was said, without "Hey Accel" and filler words. */
-export function stripFillers(text: string): string {
-  return normalize(text.replace(WAKE_WORD, ' ')).replace(FILLERS, ' ').replace(/\s+/g, ' ').trim();
+// ------------------------------------------------------------ "Hey Accel"
+//
+// "Accel" isn't a dictionary word, so speech recognition writes what it
+// sounds like: "axel", "axle", "excel", "accell", "a cell", "aksel"…
+// Instead of a list, each word is turned into a sound key and compared
+// with the sound of "accel": a vowel, then K-S-L ("accel", "axle", "excel"
+// all become a + "ksl"). Words like "access", "excellent" or "accelerate"
+// don't fit, so they never wake Accel.
+
+/** Words that can come before the name: "hey Accel", "okay Accel"… */
+const WAKE_PREFIX = /^(hey|hi|hello|ok|okay|hoy|uy|yo)$/;
+
+/** How a word sounds, roughly: "accel" → "aksel", "axle" → "aksle", "a cell" → "asel". */
+function soundKey(word: string): string {
+  return word
+    .toLowerCase()
+    .replace(/'s$/, '')
+    .replace(/[^a-z]/g, '')
+    .replace(/x/g, 'ks')
+    .replace(/c(?=[eiy])/g, 's')
+    .replace(/ck|q/g, 'k')
+    .replace(/c/g, 'k')
+    .replace(/z/g, 's')
+    .replace(/(.)\1+/g, '$1') // doubled letters: "accell" → "aksel"
+    .replace(/(?<=..)s$/, ''); // plural / possessive: "axels" → "aksel"
 }
 
-/** Whatever was said after "Hey Accel" (empty if just the wake word). */
-export function afterWakeWord(text: string): string | null {
-  const match = text.match(WAKE_WORD);
-  if (!match || match.index === undefined) return null;
-  return text.slice(match.index + match[0].length).trim();
+/** The consonants after the first letter: "aksel" → "ksl", "asel" → "sl". */
+const consonantsOf = (key: string) =>
+  key
+    .slice(1)
+    .replace(/[aeiouy]/g, '')
+    .replace(/(.)\1+/g, '$1');
+
+/**
+ * strong: sounds just like "accel" (accel, axel, axle, excel, aksel, axl).
+ * weak: only close ("asel", "a cell", "cell") — counts right after "hey".
+ */
+function wakeStrength(word: string): 'strong' | 'weak' | null {
+  const key = soundKey(word);
+  if (key.length < 3 || key.length > 6) return null;
+  const consonants = consonantsOf(key);
+  if (/^[ae]/.test(key) && consonants === 'ksl') return 'strong';
+  if (/^[aei]/.test(key) && consonants === 'sl') return 'weak';
+  if (/^s[aeiou]+l$/.test(key)) return 'weak'; // "hey cell", "hey sel"
+  return null;
+}
+
+export type WakeMatch = {
+  /** Where the match starts, including "hey" if it was said. */
+  start: number;
+  /** Where the name itself starts ("Axel" in "hey Axel"). */
+  nameStart: number;
+  /** Just after the name and any comma or full stop after it. */
+  end: number;
+};
+
+export type WakeOptions = {
+  /**
+   * Only "hey / okay / hi … Accel" counts, never the name alone. Used while
+   * the app is talking (so its own voice saying "Accel" can't wake it), with
+   * TalkBack or VoiceOver on (they read the "Accel" button aloud), and inside
+   * another mic's words ("I like Excel" in a conversation stays a sentence).
+   */
+  strict?: boolean;
+};
+
+/** Finds "Hey Accel" (in any of the ways speech recognition writes it) in `text`. */
+export function findWakeWord(text: string, options: WakeOptions = {}): WakeMatch | null {
+  const words = [...text.matchAll(/[\p{L}\p{N}']+/gu)].map((m) => ({
+    word: m[0],
+    start: m.index ?? 0,
+    end: (m.index ?? 0) + m[0].length,
+  }));
+  for (let i = 0; i < words.length; i += 1) {
+    const prefixed = i > 0 && WAKE_PREFIX.test(words[i - 1].word.toLowerCase());
+    if (options.strict && !prefixed) continue;
+    // One word ("Axel"), or two run together ("a cell", "ax el").
+    const tries = [{ last: i, strength: wakeStrength(words[i].word) }];
+    if (i + 1 < words.length) tries.push({ last: i + 1, strength: wakeStrength(words[i].word + words[i + 1].word) });
+    for (const { last, strength } of tries) {
+      if (strength === 'strong' || (strength === 'weak' && prefixed)) {
+        const after = text.slice(words[last].end).match(/^\s*[,.!?]+/);
+        return {
+          start: prefixed ? words[i - 1].start : words[i].start,
+          nameStart: words[i].start,
+          end: words[last].end + (after ? after[0].length : 0),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/** Whatever was said after "Hey Accel" (empty if just the wake word), or null if it wasn't said. */
+export function afterWakeWord(text: string, options: WakeOptions = {}): string | null {
+  const match = findWakeWord(text, options);
+  return match ? text.slice(match.end).trim() : null;
+}
+
+/**
+ * Takes "Hey Accel" off the START of a command ("Axel, open friends" →
+ * "open friends"). Elsewhere it's left alone — "tell Axel I'm here" is a
+ * friend's name, not the wake word.
+ */
+export function removeWakeWord(text: string): string {
+  const match = findWakeWord(text);
+  if (!match || !/^[\s,.!?]*$/.test(text.slice(0, match.start))) return text;
+  return `${text.slice(0, match.start)} ${text.slice(match.end)}`.trim();
+}
+
+/** The sentence with every sound-alike of "Accel" spelled "accel" ("open axel settings"). */
+export function spellAccel(text: string): string {
+  let rest = text;
+  let out = '';
+  for (let match = findWakeWord(rest); match; match = findWakeWord(rest)) {
+    out += `${rest.slice(0, match.nameStart)}accel `;
+    rest = rest.slice(match.end);
+  }
+  return out + rest;
+}
+
+/** What was said, without "Hey Accel" and filler words. */
+export function stripFillers(text: string): string {
+  return normalize(removeWakeWord(text)).replace(FILLERS, ' ').replace(/\s+/g, ' ').trim();
 }
 
 // ------------------------------------------------------------ yes / no

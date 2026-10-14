@@ -18,8 +18,9 @@ const userSchema = new mongoose.Schema({
     // turned away plenty of real Gmail addresses.)
     maxlength: 254,
   },
-  // A bcrypt hash. Missing on accounts created with Google, until they set
-  // one through "Forgot password".
+  // A bcrypt hash. Missing on accounts created with Google: they stay
+  // Google-only and can't create one (accounts that added one before
+  // 2026-10-13 keep it).
   password: { type: String },
   // Google's permanent id for the account ("sub"), once it has signed in
   // with Google. Sparse so the many accounts without one don't clash.
@@ -87,6 +88,14 @@ const userSchema = new mongoose.Schema({
     default: undefined,
   },
 }, { timestamps: true });
+
+// The hourly purge's "sign-ups never verified within a week": only the few
+// unverified accounts are in this index (partial), so the job never reads
+// every user.
+userSchema.index({ createdAt: 1 }, { partialFilterExpression: { emailVerified: false } });
+// Finding who holds a push address (a phone moving to another account, or
+// one Expo says is gone). Sparse: accounts with no phones aren't in it.
+userSchema.index({ 'pushTokens.token': 1 }, { sparse: true });
 
 module.exports = mongoose.model('User', userSchema);
 

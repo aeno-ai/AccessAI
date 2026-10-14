@@ -12,11 +12,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { PaletteFamily } from '@/constants/palettes';
 import {
   PROFILE_PRESETS,
+  quickRepliesAfterSwitch,
   suggestedQuickReplies,
   toProfile,
   type AccessibilityProfile,
 } from '@/constants/profiles';
-import { getAccessibilityPreference } from '@/utils/onboardingStorage';
+import { getAccessibilityPreference, LEGACY_PREFERENCES, preferencesKey } from '@/utils/onboardingStorage';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type TextScale = 1 | 1.15 | 1.3 | 1.5;
@@ -78,8 +79,10 @@ export type Preferences = {
   accelVoice: AccelVoice;
   /** The spoken "I'm Accel…" introduction has played. */
   accelIntroDone: boolean;
-  // Sign language (in the message box's sign mode)
+  // Sign language (in the message box's sign mode, and the Learn course)
   signLanguage: SignLanguage;
+  /** The person picked a sign language themselves (signLanguage starts as FSL either way). Learn asks once until then. */
+  signLanguageChosen: boolean;
   signUnit: SignUnit;
   signCamera: SignCamera;
   signConfidence: SignConfidence;
@@ -87,6 +90,8 @@ export type Preferences = {
   signAutoSentence: boolean;
   /** Flip the video left↔right first — for phones that save front-camera video mirrored. */
   signFlip: boolean;
+  /** Show the sign camera large (about half the screen) instead of normal. */
+  signCameraLarge: boolean;
 };
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -117,63 +122,80 @@ export const DEFAULT_PREFERENCES: Preferences = {
   accelVoice: 'man',
   accelIntroDone: false,
   signLanguage: 'fsl',
+  signLanguageChosen: false,
   signUnit: 'words',
   signCamera: 'front',
   signConfidence: 0.5,
   signAutoSentence: true,
   signFlip: false,
+  signCameraLarge: false,
 };
 
-const STORAGE_KEY = 'preferences:v1';
+// Each account's preferences are saved under its own key (preferencesKey),
+// and the last ones used on this phone here too — so the login screen keeps
+// the text size and colors of whoever used the phone last.
+const LAST_KEY = 'preferences:v1:last';
 
 /** The defaults with a profile's preset applied on top. */
 function withProfile(base: Preferences, profile: AccessibilityProfile): Preferences {
-  // Quick replies the user never changed follow the profile; edited ones stay.
-  const untouched = sameList(base.quickReplies, suggestedQuickReplies(base.profile));
   return {
     ...base,
     ...PROFILE_PRESETS[profile],
     profile,
-    quickReplies: untouched ? suggestedQuickReplies(profile) : base.quickReplies,
+    // The profile's own phrase swaps; the user's own replies stay.
+    quickReplies: quickRepliesAfterSwitch(base.quickReplies, base.profile, profile),
   };
 }
 
-function sameList(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((item, index) => item === b[index]);
+/** Saved preferences merged over the defaults, or null if there are none. */
+function fromSaved(raw: string | null): Preferences | null {
+  if (!raw) return null;
+  try {
+    // Merged over the defaults, so settings added in later versions get a
+    // sensible value instead of `undefined`.
+    const saved = JSON.parse(raw) as Partial<Preferences>;
+    const profile = toProfile(saved.profile);
+    // Accel came later: someone who already chose Blind / low vision gets
+    // it switched on, like a new user with that profile would.
+    const accel =
+      saved.accelEnabled === undefined && profile === 'blind-low-vision' ? { accelEnabled: true, accelWakeWord: true } : {};
+    return { ...DEFAULT_PREFERENCES, ...saved, ...accel, profile };
+  } catch {
+    return null; // unreadable
+  }
 }
 
-async function loadPreferences(): Promise<Preferences> {
+/** Before anyone is signed in: the last preferences used on this phone. */
+async function loadLastPreferences(): Promise<Preferences> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      // Merged over the defaults, so settings added in later versions get a
-      // sensible value instead of `undefined`.
-      const saved = JSON.parse(raw) as Partial<Preferences>;
-      const profile = toProfile(saved.profile);
-      // Accel came later: someone who already chose Blind / low vision gets
-      // it switched on, like a new user with that profile would.
-      const accel =
-        saved.accelEnabled === undefined && profile === 'blind-low-vision'
-          ? { accelEnabled: true, accelWakeWord: true }
-          : {};
-      return { ...DEFAULT_PREFERENCES, ...saved, ...accel, profile };
-    }
+    const [last, legacy] = await Promise.all([AsyncStorage.getItem(LAST_KEY), AsyncStorage.getItem(LEGACY_PREFERENCES)]);
+    return fromSaved(last) ?? fromSaved(legacy) ?? DEFAULT_PREFERENCES;
+  } catch {
+    return DEFAULT_PREFERENCES;
+  }
+}
+
+/** An account's own preferences — or, the first time, the defaults for what it chose in onboarding. */
+async function loadAccountPreferences(userId: string): Promise<Preferences> {
+  try {
+    const saved = fromSaved(await AsyncStorage.getItem(preferencesKey(userId)));
+    if (saved) return saved;
   } catch {
     // Unreadable — fall through to first-run defaults.
   }
-  // First run on this phone: start from whatever onboarding recorded.
   let onboardingChoice: string | null = null;
   try {
-    onboardingChoice = await getAccessibilityPreference();
+    onboardingChoice = await getAccessibilityPreference(userId);
   } catch {
     // No choice recorded.
   }
   return withProfile(DEFAULT_PREFERENCES, toProfile(onboardingChoice));
 }
 
-async function savePreferences(prefs: Preferences): Promise<void> {
+async function savePreferences(prefs: Preferences, account: string | null): Promise<void> {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    const json = JSON.stringify(prefs);
+    await AsyncStorage.multiSet(account ? [[preferencesKey(account), json], [LAST_KEY, json]] : [[LAST_KEY, json]]);
   } catch {
     // Only lost if the app closes before the next successful save.
   }
@@ -185,6 +207,12 @@ type PreferencesContextValue = {
   setPref: <K extends keyof Preferences>(key: K, value: Preferences[K]) => void;
   /** Applies a profile's suggested settings. Edited quick replies are kept. */
   applyProfile: (profile: AccessibilityProfile) => void;
+  /**
+   * Switches to an account's own preferences (sign-in), or keeps the current
+   * ones without an account (sign-out — they stay saved for next time).
+   * Resolves once they're on screen.
+   */
+  loadAccount: (userId: string | null) => Promise<void>;
 };
 
 const PreferencesContext = createContext<PreferencesContextValue | null>(null);
@@ -192,18 +220,22 @@ const PreferencesContext = createContext<PreferencesContextValue | null>(null);
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFERENCES);
+  // Whose preferences these are (null = nobody signed in).
+  const account = useRef<string | null>(null);
+  // Only the newest load counts (the first one can finish after a sign-in's).
+  const loads = useRef(0);
   // A change made before loading finished must not be overwritten by it.
   const changedEarly = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    void loadPreferences().then((loaded) => {
+    const load = ++loads.current;
+    void loadLastPreferences().then((loaded) => {
       if (cancelled) {
         return;
       }
-      if (!changedEarly.current) {
+      if (load === loads.current && !changedEarly.current) {
         setPrefs(loaded);
-        void savePreferences(loaded);
       }
       setReady(true);
     });
@@ -212,11 +244,27 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const loadAccount = useCallback(async (userId: string | null) => {
+    if (userId === null) {
+      // Signed out: what's on screen stays (it's saved as the phone's last).
+      account.current = null;
+      return;
+    }
+    if (userId === account.current) return;
+    const load = ++loads.current;
+    const loaded = await loadAccountPreferences(userId);
+    if (load !== loads.current) return;
+    account.current = userId;
+    changedEarly.current = false;
+    setPrefs(loaded);
+    void savePreferences(loaded, userId);
+  }, []);
+
   const update = useCallback((change: (current: Preferences) => Preferences) => {
     changedEarly.current = true;
     setPrefs((current) => {
       const next = change(current);
-      void savePreferences(next);
+      void savePreferences(next, account.current);
       return next;
     });
   }, []);
@@ -232,7 +280,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     [update],
   );
 
-  const value = useMemo(() => ({ ready, prefs, setPref, applyProfile }), [ready, prefs, setPref, applyProfile]);
+  const value = useMemo(
+    () => ({ ready, prefs, setPref, applyProfile, loadAccount }),
+    [ready, prefs, setPref, applyProfile, loadAccount],
+  );
 
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;
 }

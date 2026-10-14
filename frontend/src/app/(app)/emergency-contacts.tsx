@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { AuthInput } from '@/components/auth/AuthInput';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { IconButton } from '@/components/ui/IconButton';
@@ -19,6 +19,7 @@ import {
   saveContact,
   type EmergencyContact,
 } from '@/utils/emergencyContacts';
+import { goBack } from '@/utils/navigation';
 
 const EMPTY_FORM = { name: '', phoneNumber: '', relationship: '' };
 
@@ -116,7 +117,7 @@ export default function EmergencyContactsScreen() {
     <ScreenShell maxWidth={MaxContentWidth.app}>
       <KeyboardAvoider>
         <View style={styles.header}>
-          <IconButton icon="arrow-back" label="Go back" onPress={() => router.back()} />
+          <IconButton icon="arrow-back" label="Go back" onPress={() => goBack()} />
           <Text style={styles.headerTitle} accessibilityRole="header">
             Emergency contacts
           </Text>

@@ -3,7 +3,6 @@ import type { AdminRole, UserType } from '../types';
 export const ROLE_LABELS: Record<AdminRole, string> = {
   super_admin: 'Super admin',
   admin: 'Admin',
-  viewer: 'Viewer',
 };
 
 export const USER_TYPE_LABELS: Record<UserType, string> = {

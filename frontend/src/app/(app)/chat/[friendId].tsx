@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, FlatList, Keyboard, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '@/api/apiClient';
 import { Composer, type ComposerHandle } from '@/components/conversation/Composer';
@@ -24,6 +24,7 @@ import { useFriends } from '@/realtime/FriendsProvider';
 import { announce } from '@/utils/a11y';
 import { mapsLink } from '@/utils/sos';
 import { setSosCircle } from '@/utils/sosCircle';
+import { goBack } from '@/utils/navigation';
 
 function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -99,27 +100,53 @@ export default function FriendChatScreen() {
     setMessages(await getDirectMessages(friendId));
   }, [friendId]);
 
-  // Fetch anything new, then tell the friend it's been read. Both quietly
-  // do nothing offline.
+  // Tells the friend the chat was read — only when there was something to
+  // read, and once for a burst of messages (1 s after the last), not on
+  // every visit and every message.
+  const unreadRef = useRef(0);
+  useEffect(() => {
+    unreadRef.current = friend?.unread ?? 0;
+  });
+  const unreadAtOpen = useRef(0);
+  const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markReadSoon = useCallback(() => {
+    if (!friendId) return;
+    if (readTimer.current) clearTimeout(readTimer.current);
+    readTimer.current = setTimeout(() => {
+      readTimer.current = null;
+      void markChatRead(friendId).catch(() => undefined);
+    }, 1000);
+  }, [friendId]);
+
+  // Fetch anything new, then tell the friend it's been read (if anything
+  // was unread or new). Both quietly do nothing offline.
   const catchUp = useCallback(async () => {
     if (!friendId) return;
     try {
-      await backfill(friendId);
+      const fetched = await backfill(friendId);
       await reload();
-      await markChatRead(friendId);
+      if (unreadAtOpen.current > 0 || fetched > 0) markReadSoon();
     } catch {
       // Offline — the saved chat is shown.
     }
-  }, [friendId, reload]);
+  }, [friendId, reload, markReadSoon]);
 
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
+      // Before setActiveChat clears it.
+      unreadAtOpen.current = unreadRef.current;
       setActiveChat(friendId ?? null);
       void reload().then(catchUp);
       return () => {
         focused.current = false;
         setActiveChat(null);
+        // Leaving within the second: still say it was read.
+        if (readTimer.current && friendId) {
+          clearTimeout(readTimer.current);
+          readTimer.current = null;
+          void markChatRead(friendId).catch(() => undefined);
+        }
       };
     }, [friendId, reload, catchUp, setActiveChat]),
   );
@@ -129,7 +156,7 @@ export default function FriendChatScreen() {
     const offNew = onLive('dm:new', (payload) => {
       if (payload.friendId !== friendId) return;
       void reload().then(() => {
-        if (focused.current) void markChatRead(friendId).catch(() => undefined);
+        if (focused.current && !payload.message.fromMe) markReadSoon();
       });
     });
     const offRead = onLive('dm:read', (payload) => {
@@ -139,7 +166,7 @@ export default function FriendChatScreen() {
       offNew();
       offRead();
     };
-  }, [friendId, onLive, reload]);
+  }, [friendId, onLive, reload, markReadSoon]);
 
   useEffect(() => {
     const subscription = Keyboard.addListener('keyboardDidShow', () => listRef.current?.scrollToEnd({ animated: true }));
@@ -182,7 +209,7 @@ export default function FriendChatScreen() {
               await deleteChat(friend.userId);
               await refresh();
               announce(`${friend.name} removed`);
-              router.back();
+              goBack();
             } catch (e: unknown) {
               Alert.alert('Could not remove friend', e instanceof Error ? e.message : 'Check your connection and try again.');
             }
@@ -215,7 +242,7 @@ export default function FriendChatScreen() {
     <ScreenShell maxWidth={MaxContentWidth.app}>
       <KeyboardAvoider>
         <View style={styles.header}>
-          <IconButton icon="arrow-back" label="Go back" onPress={() => router.back()} />
+          <IconButton icon="arrow-back" label="Go back" onPress={() => goBack()} />
           <View
             style={styles.headerText}
             accessible
@@ -262,6 +289,8 @@ export default function FriendChatScreen() {
             keyExtractor={(item) => item.localId}
             contentContainerStyle={styles.messageList}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+            // Long chats keep fewer bubbles drawn off screen.
+            windowSize={11}
             renderItem={({ item }) =>
               item.kind === 'sos' ? (
                 <SosMessage message={item} name={name} />

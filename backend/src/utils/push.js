@@ -12,7 +12,8 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const BATCH = 100; // Expo's limit per request
 
 async function tokensOf(userIds) {
-  const users = await User.find({ _id: { $in: userIds } }).select('+pushTokens');
+  // Naming the hidden field includes it, and nothing else but _id.
+  const users = await User.find({ _id: { $in: userIds } }).select('pushTokens').lean();
   const tokens = [];
   for (const user of users) {
     for (const entry of user.pushTokens ?? []) {
@@ -28,15 +29,38 @@ async function forgetToken(token) {
   await User.updateMany({ 'pushTokens.token': token }, { $pull: { pushTokens: { token } } });
 }
 
-async function postToExpo(messages) {
-  const response = await fetch(EXPO_PUSH_URL, {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(messages),
-    signal: AbortSignal.timeout(5000),
-  });
-  const result = await response.json().catch(() => null);
-  return Array.isArray(result?.data) ? result.data : [];
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Expo busy (429) or failing (5xx), or no answer: worth another try.
+const isPassing = (status) => status === 429 || status >= 500;
+
+// `retries`: how many more tries after a busy/failed answer, waiting 1 s,
+// then 2 s (or what Expo's Retry-After asks, up to 5 s). SOS alerts get 2;
+// everything else 0, so one busy moment drops only a chat notification.
+async function postToExpo(messages, retries = 0) {
+  for (let attempt = 0; ; attempt += 1) {
+    let response;
+    try {
+      response = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(messages),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (error) {
+      if (attempt >= retries) throw error;
+      await sleep(1000 * 2 ** attempt);
+      continue;
+    }
+    if (isPassing(response.status) && attempt < retries) {
+      const asked = Number(response.headers.get('retry-after')) * 1000;
+      await sleep(Math.min(5000, asked > 0 ? asked : 1000 * 2 ** attempt));
+      continue;
+    }
+    if (isPassing(response.status)) console.error(`Push notification failed: Expo answered ${response.status}`);
+    const result = await response.json().catch(() => null);
+    return Array.isArray(result?.data) ? result.data : [];
+  }
 }
 
 /**
@@ -62,6 +86,7 @@ async function pushToUsers(userIds, notification) {
           channelId: notification.channelId,
           ttl: notification.ttl ?? 3600,
         })),
+        notification.channelId === 'sos_alerts' ? 2 : 0,
       );
       // Tickets come back in the same order as the messages.
       await Promise.all(

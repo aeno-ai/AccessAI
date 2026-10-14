@@ -21,7 +21,7 @@ const toClient = (message, viewerId) => ({
   clientId: message.clientId,
   fromMe: String(message.senderId) === String(viewerId),
   body: message.body,
-  kind: message.kind,
+  kind: message.kind ?? 'text',
   sos: message.kind === 'sos' ? message.sos : undefined,
   // Server time: the order everyone agrees on, and the cursor for `after`.
   createdAt: message.createdAt.getTime(),
@@ -45,7 +45,8 @@ const listMessages = async (req, res, next) => {
       ...(after ? { createdAt: { $gt: after } } : {}),
     })
       .sort({ createdAt: 1 })
-      .limit(limit);
+      .limit(limit)
+      .lean();
     res.json(messages.map((message) => toClient(message, me)));
   } catch (error) {
     next(error);
@@ -68,7 +69,7 @@ const sendMessage = async (req, res, next) => {
       const result = await DirectMessage.findOneAndUpdate(
         { senderId: me, clientId },
         { $setOnInsert: { friendshipId: friendship._id, senderId: me, clientId, body, kind: 'text', clientCreatedAt: createdAt } },
-        { upsert: true, new: true, includeResultMetadata: true },
+        { upsert: true, returnDocument: 'after', includeResultMetadata: true },
       );
       message = result.value;
       isNew = !result.lastErrorObject?.updatedExisting;

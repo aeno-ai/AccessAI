@@ -7,7 +7,9 @@
 2. Replays the tester's saved recordings (recordings/<fsl|asl>/<signer>/*.npz:
    the raw landmarks + what the tester predicted) through this service's
    copy of the pipeline. The top word must match — proof the app and the
-   tester see signs the same way.
+   tester see signs the same way. Recordings made with an older model (a
+   different number of words) can't be compared; they're only run, to show
+   the current model reads them without an error.
 3. Sends a 2-second blank video through a real session, end to end
    (decode → MediaPipe → segmenter), which should answer with a hint.
 """
@@ -26,6 +28,9 @@ DEFAULT_TESTER = Path.home() / "Downloads" / "AccessAI-tester"
 
 
 def main():
+    # ✓/✗ marks on a Windows console.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     tester = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_TESTER
     models = registry.load_all()
     print("Installed sign models:")
@@ -34,7 +39,7 @@ def main():
         print(f"  {model.language.upper()} {model.unit:<8} {state}")
 
     print(f"\nReplaying the tester's recordings from {tester / 'recordings'}:")
-    same = total = 0
+    same = total = older = 0
     for language in registry.LANGUAGES:
         model = models[(language, "words")]
         if not model.available:
@@ -47,13 +52,18 @@ def main():
             if "top" not in res:
                 print(f"  {path.name}: {res['error']}")
                 continue
+            if saved["probs"].size != len(model.labels):
+                older += 1
+                continue
             ours, theirs = res["top"][0][0], int(np.argmax(saved["probs"]))
             total += 1
             same += ours == theirs
             mark = "✓" if ours == theirs else "✗"
             print(f"  {mark} {language.upper()} {path.parent.name}/{path.name}: "
                   f"{model.labels[ours]} ({res['top'][0][1]:.0%}) — tester said {model.labels[theirs]}")
-    print(f"  {same}/{total} match the tester." if total else "  (no recordings found)")
+    print(f"  {same}/{total} match the tester." if total else "  (no recordings to compare)")
+    if older:
+        print(f"  {older} more were made with an older model: all read without an error (not compared).")
 
     print("\nEnd to end with a blank 2-second video:")
     import cv2

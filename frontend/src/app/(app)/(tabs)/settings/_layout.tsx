@@ -25,6 +25,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="display" options={{ title: 'Display & text' }} />
       <Stack.Screen name="speech" options={{ title: 'Conversation & speech' }} />
       <Stack.Screen name="quick-replies" options={{ title: 'Quick replies' }} />
+      <Stack.Screen name="sign" options={{ title: 'Sign language' }} />
       <Stack.Screen name="alerts" options={{ title: 'Alerts' }} />
       <Stack.Screen name="sos" options={{ title: 'Emergency SOS' }} />
       <Stack.Screen name="accel" options={{ title: 'Accel, voice assistant' }} />

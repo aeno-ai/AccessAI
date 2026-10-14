@@ -1,35 +1,52 @@
 import { router, type Href } from 'expo-router';
 import { apiFetch } from '@/api/apiClient';
-import { INTENTS, type IntentId, type Slots } from '@/accel/catalog';
-import { matchFriend, spellCode } from '@/accel/language';
-import { describeScreen } from '@/accel/screens';
+import { INTENTS, screenOf, type IntentId, type Slots } from '@/accel/catalog';
+import { chatFriend, chatMessages, lineFor, nameOf, pageFromNewest, spokenAgo, unreadFrom } from '@/accel/chat';
+import { matchFriend, spellCode, stripFillers } from '@/accel/language';
+import { currentScreen } from '@/accel/screenContext';
+import { describeLive, describeScreen, screenExamples } from '@/accel/screens';
 import { isOnlineNow, polishMessage } from '@/accel/understand';
+import { friendRecentText } from '@/components/sos/RecentSosCard';
+import { listConversations } from '@/db/conversations';
 import { addPendingMessage, flushOutbox, getDirectMessages } from '@/db/directMessages';
 import type { Friend } from '@/db/friends';
 import type { Preferences, SpeechRate, TextScale } from '@/hooks/use-preferences';
+import { allLessons } from '@/learn/lessons';
+import { openLesson } from '@/learn/open';
+import { courseProgress, heartsNow } from '@/learn/progress';
+import type { Completion, Hearts } from '@/learn/types';
 import type { FriendRequest } from '@/realtime/FriendsProvider';
-import type { MySos, SosMethod } from '@/utils/sos';
-import { joinNames } from '@/utils/sos';
+import { openSavedConversation, startNamedConversation } from '@/utils/conversationNav';
+import { whenText } from '@/utils/dates';
+import type { FriendSos, MySos, SosMethod } from '@/utils/sos';
+import { fetchRecentSos, joinNames, loadRecentSos, saveRecentSos } from '@/utils/sos';
 import { setSosCircle } from '@/utils/sosCircle';
+import { goBack } from '@/utils/navigation';
 
 /**
  * What Accel does for each command. Every plan is one of:
- * - say:     just answer (reading things aloud)
- * - confirm: ask a yes/no question first; only "yes" runs it
- * - do:      act straight away (only the SOS, whose countdown can be cancelled)
+ * - say:     just answer
+ * - confirm: ask a yes/no question first; only "yes" runs it ("no" cancels,
+ *            or does `no` — e.g. skip to the next friend)
+ * - do:      act straight away (the SOS, whose countdown can be cancelled,
+ *            and reading chats aloud)
  * - choose:  "Which Ana?" — then the answer picks one of the options
+ * - ask:     a question whose answer is words, not a command ("What do you
+ *            want to tell Andrew?")
+ * An outcome can carry a `next` plan, so steps chain into a short dialog.
  *
  * What Accel SAYS is always one of the fixed sentences below, filled in
  * with names and details — never text the AI wrote. And nothing here can
  * delete an account, sign out or unfriend anyone.
  */
-export type Outcome = { say: string; after?: () => void };
+export type Outcome = { say: string; after?: () => void; next?: Plan };
 
 export type Plan =
   | { kind: 'say'; text: string }
-  | { kind: 'confirm'; question: string; run: () => Promise<Outcome> }
+  | { kind: 'confirm'; question: string; run: () => Promise<Outcome>; no?: () => Promise<Plan> }
   | { kind: 'do'; run: () => Promise<Outcome> }
-  | { kind: 'choose'; question: string; options: { label: string; friend: Friend; plan: () => Promise<Plan> }[] };
+  | { kind: 'choose'; question: string; options: { label: string; friend: Friend; plan: () => Promise<Plan> }[] }
+  | { kind: 'ask'; question: string; answer: (text: string) => Promise<Plan> };
 
 export type AccelContext = {
   pathname: string;
@@ -40,11 +57,22 @@ export type AccelContext = {
   refreshFriends: () => Promise<Friend[]>;
   sosAvailable: boolean;
   mySos: MySos | null;
+  /** An SOS made offline is waiting to go out. */
+  sosPending: boolean;
   startSos: (method: SosMethod) => void;
   markSafe: () => Promise<void>;
   prefs: Preferences;
   setPref: <K extends keyof Preferences>(key: K, value: Preferences[K]) => void;
   lastSpoken: string | null;
+  /** How far back Accel has read in each chat (friend id → messages from the newest). */
+  readPositions: Map<string, number>;
+  /** Marks a chat read (here and for the friend). */
+  markRead: (friendId: string) => Promise<void>;
+  /** Friends' SOS still going. */
+  friendSos: FriendSos[];
+  userId: string | null;
+  /** Learn progress, for "start the next lesson" and the Learn screen. */
+  learn: { completions: Completion[]; hearts: Hearts };
 };
 
 const SPEECH_RATES: SpeechRate[] = [0.75, 1, 1.25, 1.5];
@@ -73,14 +101,21 @@ const SCREEN: Partial<Record<IntentId, string>> = {
   'nav.accel_guide': '/accel-guide',
 };
 
-/** Finds the friend, or asks which one, or says nobody matched. */
+// "he", "her"… inside a chat mean that friend, not someone called He.
+const PRONOUN = /^(he|she|they|him|her|them|siya|niya|nila|sya|nya)$/i;
+
+/**
+ * Finds the friend, or asks which one, or says nobody matched. With no name
+ * (or "him"), `fallback` — the friend whose chat is open — is used.
+ */
 function withFriend(
   name: string | undefined,
   people: Friend[],
   prompt: string,
   next: (friend: Friend) => Promise<Plan> | Plan,
+  fallback: Friend | null = null,
 ): Promise<Plan> | Plan {
-  if (!name) return say(prompt);
+  if (!name || PRONOUN.test(name.trim())) return fallback ? next(fallback) : say(prompt);
   const match = matchFriend(name, people);
   if (!match) return say(`I couldn't find ${name} among your friends.`);
   if ('friend' in match) return next(match.friend);
@@ -91,8 +126,153 @@ function withFriend(
   };
 }
 
+// What "Hey Accel" sounds like in a tip, when it's on.
+const callAccel = (ctx: AccelContext) => (ctx.prefs.accelWakeWord ? 'Hey Accel, ' : '');
+
+/** A spoken answer cleaned up: "to Andrew" → "Andrew", "kay Ana" → "Ana". */
+function spokenName(text: string): string {
+  return stripFillers(text).replace(/^(to|si|kay|kina|ni|for|with)\s+/, '').trim();
+}
+
+/** "Tell him I'm outside", as the answer to "What do you want to tell…?" → "I'm outside". */
+function spokenMessage(text: string): string {
+  return text.trim().replace(/^(say|tell (him|her|them)|sabihin (mo )?(na)?)\s+(that\s+)?/i, '').trim() || text.trim();
+}
+
+/** "Send to Andrew: '…'?" — then sends (or saves it for when back online). `then` continues a walk-through. */
+async function confirmSend(friend: Friend, raw: string, ctx: AccelContext, then?: () => Promise<Plan>): Promise<Plan> {
+  const text = await polishMessage(raw, ctx.prefs.accelSmart);
+  const name = nameOf(friend);
+  return {
+    kind: 'confirm',
+    question: `Send to ${name}: "${text}"?`,
+    run: async () => {
+      await addPendingMessage(friend.userId, text);
+      await flushOutbox().catch(() => {});
+      return {
+        say: (await isOnlineNow()) ? `Sent to ${name}.` : `Saved. It will send to ${name} when you're back online.`,
+        next: then ? await then() : undefined,
+      };
+    },
+    no: then ? async () => ({ kind: 'do', run: async () => ({ say: "Okay, I won't send it.", next: await then() }) }) : undefined,
+  };
+}
+
+/** "What do you want to tell Andrew?" → the answer → confirm → send. */
+function askMessage(friend: Friend, ctx: AccelContext, then?: () => Promise<Plan>): Plan {
+  return {
+    kind: 'ask',
+    question: `What do you want to tell ${nameOf(friend)}?`,
+    answer: async (text) => confirmSend(friend, spokenMessage(text), ctx, then),
+  };
+}
+
+/**
+ * Reads `count` messages of a chat (before the newest `skip`), oldest
+ * first, then offers older ones. Marks the chat read.
+ */
+function readChat(friend: Friend, ctx: AccelContext, count: number, skip: number, words: { intro?: string; end?: string } = {}): Plan {
+  return {
+    kind: 'do',
+    run: async () => {
+      const messages = await chatMessages(friend.userId, await isOnlineNow());
+      const page = pageFromNewest(messages, count, skip);
+      if (!page.length) {
+        return { say: skip ? 'There are no older messages.' : `You and ${nameOf(friend)} haven't messaged yet.` };
+      }
+      ctx.readPositions.set(friend.userId, skip + page.length);
+      if (skip === 0 && friend.unread > 0) await ctx.markRead(friend.userId);
+      const lines = page.map((message) => lineFor(message, friend)).join(' ');
+      const more = messages.length > skip + page.length;
+      return {
+        say: `${words.intro ?? ''}${lines}${words.end ?? ''}`,
+        next:
+          more && !words.end
+            ? {
+                kind: 'confirm',
+                question: 'Hear older messages?',
+                run: async () => ({ say: '', next: readChat(friend, ctx, 5, skip + page.length) }),
+                no: async () => say('Okay.'),
+              }
+            : undefined,
+      };
+    },
+  };
+}
+
+/** "Any new messages?": each friend's new messages, then "Reply to Andrew?", then the next friend. */
+function inboxStep(list: Friend[], index: number, ctx: AccelContext, extra: string): Plan {
+  if (index >= list.length) return say(`That's all your new messages.${extra}`);
+  const friend = list[index];
+  const name = nameOf(friend);
+  const nextStep = async () => inboxStep(list, index + 1, ctx, extra);
+  return {
+    kind: 'do',
+    run: async () => {
+      const messages = await chatMessages(friend.userId, await isOnlineNow());
+      const fresh = unreadFrom(messages, friend);
+      if (fresh.length) ctx.readPositions.set(friend.userId, messages.length - messages.indexOf(fresh[0]));
+      await ctx.markRead(friend.userId);
+      const intro = index === 0 ? `New messages from ${joinNames(list.map(nameOf))}. ` : '';
+      const lines = fresh.length ? fresh.map((message) => lineFor(message, friend)).join(' ') : `${name} sent you a message.`;
+      return {
+        say: intro + lines,
+        next: {
+          kind: 'confirm',
+          question: `Reply to ${name}?`,
+          run: async () => ({ say: '', next: askMessage(friend, ctx, nextStep) }),
+          no: nextStep,
+        },
+      };
+    },
+  };
+}
+
+/** Who "reply" answers: the open chat, else whoever messaged last. */
+function lastToMessage(ctx: AccelContext): Friend | null {
+  const open = chatFriend(ctx);
+  if (open) return open;
+  const theirs = ctx.friends.filter((friend) => friend.lastMessage && !friend.lastMessage.fromMe);
+  theirs.sort((a, b) => (b.lastMessage?.createdAt ?? 0) - (a.lastMessage?.createdAt ?? 0));
+  return theirs[0] ?? null;
+}
+
+/** A screen command asked somewhere else: where it works, and how to get there. */
+function elsewhere(where: string, ctx: AccelContext): Plan {
+  const how = where === 'Conversation mode' ? 'start a conversation' : where === 'Chats' ? 'open my chats' : 'start the next lesson';
+  return say(`That works in ${where}. To go there, say: ${callAccel(ctx)}${how}.`);
+}
+
+/** "You're on Home. You have 3 saved conversations…" — what the screen shows right now. */
+async function screenNow(ctx: AccelContext): Promise<string> {
+  const registered = currentScreen();
+  const friend = chatFriend(ctx);
+  const screen = describeScreen(ctx.pathname, friend ? nameOf(friend) : null);
+  const live = registered ? await registered.describe() : await describeLive(ctx);
+  return `You're on ${registered?.name ?? screen.name}. ${live ?? screen.tips}`;
+}
+
+/** Each friend's latest SOS this week: from the server when online, else the copy Home saved. */
+async function recentSos(ctx: AccelContext) {
+  if (!ctx.userId) return null;
+  try {
+    const list = await fetchRecentSos();
+    void saveRecentSos(ctx.userId, { ...list, fetchedAt: Date.now() });
+    return { list, savedAt: null as number | null };
+  } catch {
+    const saved = await loadRecentSos(ctx.userId);
+    return saved ? { list: saved, savedAt: saved.fetchedAt } : null;
+  }
+}
+
 export async function planFor(intent: IntentId, slots: Slots, ctx: AccelContext): Promise<Plan> {
   const label = INTENTS[intent].label;
+
+  // ---- this screen's own commands (Chats, Conversation mode, a Learn lesson)
+  const own = currentScreen()?.commands[intent];
+  if (own) return own(slots);
+  const where = screenOf(intent);
+  if (where && intent !== 'conv.start') return elsewhere(where, ctx);
 
   // ---- going places: say where, then go there
   const path = SCREEN[intent];
@@ -120,7 +300,7 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: AccelContext)
       return {
         kind: 'confirm',
         question: 'Go back to the previous screen?',
-        run: async () => ({ say: 'Going back.', after: () => (router.canGoBack() ? router.back() : router.navigate('/')) }),
+        run: async () => ({ say: 'Going back.', after: () => goBack() }),
       };
 
     case 'nav.add_friend':
@@ -140,8 +320,13 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: AccelContext)
         kind: 'confirm',
         question: `Open your chat with ${friend.name}?`,
         run: async () => ({
-          say: `Opening your chat with ${friend.firstName || friend.name}.`,
+          say: '',
           after: () => router.navigate({ pathname: '/chat/[friendId]', params: { friendId: friend.userId } }),
+          // Then hear it: the last 3 messages, and how to go on.
+          next: readChat(friend, ctx, 3, 0, {
+            intro: `Your chat with ${nameOf(friend)}. `,
+            end: ` To answer, say: ${callAccel(ctx)}reply. To hear more, say: ${callAccel(ctx)}older messages.`,
+          }),
         }),
       }));
 
@@ -152,7 +337,17 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: AccelContext)
       return { kind: 'do', run: async () => ({ say: '', after: () => ctx.startSos('voice') }) };
 
     case 'sos.im_safe':
-      if (!ctx.mySos) return say("You don't have an SOS going right now.");
+      if (!ctx.mySos && !ctx.sosPending) return say("You don't have an SOS going right now.");
+      if (!ctx.mySos) {
+        return {
+          kind: 'confirm',
+          question: "Your SOS hasn't gone out yet, because there's no internet. Cancel it?",
+          run: async () => {
+            await ctx.markSafe();
+            return { say: "Okay. Your SOS won't be sent." };
+          },
+        };
+      }
       return {
         kind: 'confirm',
         question: "End your SOS and tell your friends you're safe?",
@@ -189,15 +384,44 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: AccelContext)
     // ---- reading things aloud
     case 'read.new_messages': {
       const unread = ctx.friends.filter((friend) => friend.unread > 0);
-      const parts = unread.map((friend) => `${friend.unread} from ${friend.firstName || friend.name}`);
       const requests = ctx.incomingRequests.length;
-      const messages = unread.length
-        ? `You have new messages: ${joinNames(parts)}.`
-        : 'No new messages.';
-      const extra = requests ? ` And ${requests} friend ${requests === 1 ? 'request' : 'requests'}.` : '';
-      const hint = unread.length === 1 ? ` Say "read ${unread[0].firstName}'s last message" to hear it.` : '';
-      return say(messages + extra + hint);
+      const extra = requests ? ` You also have ${requests} friend ${requests === 1 ? 'request' : 'requests'}.` : '';
+      if (!unread.length) return say(`No new messages.${extra}`);
+      return inboxStep(unread, 0, ctx, extra);
     }
+
+    case 'read.chat_with':
+      return withFriend(
+        slots.friendName,
+        ctx.friends,
+        'Whose chat? For example, say "read my chat with Ana".',
+        (friend) => readChat(friend, ctx, 5, 0),
+        chatFriend(ctx),
+      );
+
+    case 'read.older_messages':
+      return withFriend(
+        slots.friendName,
+        ctx.friends,
+        'Open a chat first, or say "read my chat with Ana".',
+        (friend) => readChat(friend, ctx, 5, ctx.readPositions.get(friend.userId) ?? 0),
+        chatFriend(ctx),
+      );
+
+    case 'read.my_last_message':
+      return withFriend(
+        slots.friendName,
+        ctx.friends,
+        'To whom? For example, say "read my last message to Ana".',
+        async (friend) => {
+          const messages = await chatMessages(friend.userId, await isOnlineNow());
+          const mine = [...messages].reverse().find((message) => message.fromMe);
+          if (!mine) return say(`You haven't sent ${nameOf(friend)} a message yet.`);
+          const waiting = mine.status === 'pending' ? " It's waiting to send." : '';
+          return say(`You said to ${nameOf(friend)}, ${spokenAgo(mine.createdAt)}: ${mine.body}${waiting}`);
+        },
+        chatFriend(ctx),
+      );
 
     case 'read.last_message_from':
       return withFriend(slots.friendName, ctx.friends, 'Whose message? For example, say "read Ana\'s last message".', async (friend) => {
@@ -211,7 +435,7 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: AccelContext)
             ? `${friend.firstName} sent an SOS ${when}: ${last.body}`
             : `${friend.firstName || friend.name} said, ${when}: ${last.body}`,
         );
-      });
+      }, chatFriend(ctx));
 
     case 'read.who_online': {
       if (!ctx.connected) return say("I can't tell who's online while you're offline.");
@@ -219,17 +443,86 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: AccelContext)
       return say(online.length ? `${joinNames(online)} ${online.length === 1 ? 'is' : 'are'} online.` : 'None of your friends are online right now.');
     }
 
-    case 'read.where_am_i': {
-      const chatId = ctx.pathname.startsWith('/chat/') ? ctx.pathname.split('/')[2] : null;
-      const friend = chatId ? ctx.friends.find((f) => f.userId === chatId) : null;
-      const screen = describeScreen(ctx.pathname, friend?.firstName ?? friend?.name);
-      return say(`You're on ${screen.name}. ${screen.tips}`);
+    case 'read.where_am_i':
+    case 'read.screen':
+      return say(await screenNow(ctx));
+
+    // "What can I do here": this screen's commands first, then the ones that work everywhere.
+    case 'read.help': {
+      const registered = currentScreen();
+      const friend = chatFriend(ctx);
+      const name = registered?.name ?? describeScreen(ctx.pathname, friend ? nameOf(friend) : null).name;
+      const examples = (registered?.examples ?? screenExamples(ctx)).slice(0, 6);
+      const here = examples.length ? `On ${name}, you can say: ${examples.join('. ')}. ` : '';
+      return say(
+        `${here}Anywhere, you can say: go home. Any new messages? What's on this screen? Or, in an emergency: SOS. Say "show me what you can do" for the full list.`,
+      );
     }
 
-    case 'read.help':
-      return say(
-        'You can say things like: take me to conversation mode. Any new messages? Tell Ana I\'m on my way. Add a friend. Where am I? Or, in an emergency: SOS. Say "show me what you can do" for the full list.',
-      );
+    case 'read.recent_sos': {
+      const found = await recentSos(ctx);
+      if (!found) return say("I can't check recent SOS right now. Try again when you're online.");
+      const { friends, mine } = found.list;
+      const lines = friends.map((sos) => `${sos.name}: ${friendRecentText(sos, ctx.userId)}${sos.active ? ' It is still going.' : ''}`);
+      if (mine) lines.push(`Your last SOS was ${whenText(mine.occurredAt ?? mine.createdAt)}${mine.active ? ', and it is still going' : ''}.`);
+      if (!lines.length) return say('No SOS in the past week.');
+      const old = found.savedAt ? ` This is from ${whenText(found.savedAt)}; you're offline.` : '';
+      return say(`${lines.join(' ')}${old}`);
+    }
+
+    case 'nav.last_conversation': {
+      const [latest] = await listConversations();
+      if (!latest) return say(`You don't have any saved conversations yet. Say: ${callAccel(ctx)}start a conversation.`);
+      return {
+        kind: 'confirm',
+        question: `Open your last conversation, ${latest.title}?`,
+        run: async () => ({ say: `Opening ${latest.title}.`, after: () => openSavedConversation(latest.id) }),
+      };
+    }
+
+    // Anywhere but Conversation mode itself (that screen handles it).
+    case 'conv.start': {
+      const name = slots.friendName;
+      if (!name) return planFor('nav.conversation', {}, ctx);
+      return {
+        kind: 'confirm',
+        question: `Start a new conversation called ${name}?`,
+        run: async () => ({ say: `Starting a conversation called ${name}.`, after: () => startNamedConversation(name) }),
+      };
+    }
+
+    case 'learn.next_lesson': {
+      if (!ctx.prefs.signLanguageChosen) {
+        return {
+          kind: 'confirm',
+          question: "You haven't picked a sign language yet. Open Learn to choose one?",
+          run: async () => ({ say: 'Opening Learn.', after: go('/learn') }),
+        };
+      }
+      const course = ctx.prefs.signLanguage;
+      const progress = courseProgress(course, ctx.learn.completions);
+      const lesson = progress.next ? allLessons(course).find((l) => l.id === progress.next) : null;
+      if (!lesson) return say("You've finished every level that's open. Well done!");
+      if (lesson.kind !== 'review' && heartsNow(ctx.learn.hearts, Date.now()).hearts.count <= 0) {
+        return say("You're out of hearts. One comes back every 30 minutes. You can still practise signs.");
+      }
+      const teaches = lesson.kind === 'review' ? 'It goes over every sign of the unit.' : `It teaches ${joinNames(lesson.signs.map((sign) => sign.display))}.`;
+      return {
+        kind: 'confirm',
+        question: `Start ${lesson.title} of ${lesson.unitTitle}? ${teaches}`,
+        run: async () => ({ say: `Starting ${lesson.title}.`, after: () => openLesson(lesson.id) }),
+      };
+    }
+
+    case 'learn.practice':
+      return {
+        kind: 'confirm',
+        question: 'You want me to take you to sign practice?',
+        run: async () => ({ say: 'Opening Practice.', after: go('/learn-practice' as Href) }),
+      };
+
+    case 'blocked.outside':
+      return say('I can only help inside AccessAI.');
 
     case 'read.repeat':
       return say(ctx.lastSpoken ?? "I haven't said anything yet.");
@@ -251,23 +544,20 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: AccelContext)
 
     // ---- messages and friends
     case 'msg.send':
-      if (!slots.messageText) return say('What should I send? For example, say "tell Ana I\'m on my way".');
-      return withFriend(slots.friendName, ctx.friends, 'Who should I send it to?', async (friend) => {
-        const text = await polishMessage(slots.messageText!, ctx.prefs.accelSmart);
-        return {
-          kind: 'confirm',
-          question: `Send to ${friend.firstName || friend.name}: "${text}"?`,
-          run: async () => {
-            await addPendingMessage(friend.userId, text);
-            await flushOutbox().catch(() => {});
-            return {
-              say: (await isOnlineNow())
-                ? `Sent to ${friend.firstName || friend.name}.`
-                : `Saved. It will send to ${friend.firstName || friend.name} when you're back online.`,
-            };
-          },
-        };
-      });
+    case 'msg.reply': {
+      // With the words: confirm and send. Without: ask for them first.
+      const sendTo = (friend: Friend) => (slots.messageText ? confirmSend(friend, slots.messageText, ctx) : askMessage(friend, ctx));
+      const here = intent === 'msg.reply' ? lastToMessage(ctx) : chatFriend(ctx);
+      if (slots.friendName || here) {
+        return withFriend(slots.friendName, ctx.friends, 'Who should I send it to?', sendTo, here);
+      }
+      if (intent === 'msg.reply') return say('Nobody has messaged you yet.');
+      return {
+        kind: 'ask',
+        question: 'Who do you want to message?',
+        answer: async (text) => withFriend(spokenName(text), ctx.friends, "I didn't catch the name. Okay, I cancelled that.", sendTo),
+      };
+    }
 
     case 'friend.add_code':
       if (!slots.friendCode) return say('Say the friend code letter by letter, for example "add friend code A B C D 2 3 4 5".');
@@ -366,7 +656,7 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: AccelContext)
     }
 
     case 'blocked.account':
-      return say('For your safety, I can’t do that by voice. You can do it yourself from the menu.');
+      return say('For your safety, I can’t do that by voice. You can do it yourself in the menu, or in Edit profile.');
 
     case 'none':
     default:

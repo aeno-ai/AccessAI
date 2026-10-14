@@ -2,12 +2,7 @@ const mongoose = require('mongoose');
 
 const messageSchema = new mongoose.Schema(
   {
-    conversationId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Conversation',
-      required: true,
-      index: true,
-    },
+    conversationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation', required: true },
     clientId: { type: String, required: true, trim: true, maxlength: 100 },
     sender: { type: String, enum: ['me', 'them'], required: true },
     body: { type: String, required: true, trim: true, maxlength: 2000 },
@@ -19,7 +14,8 @@ const messageSchema = new mongoose.Schema(
 );
 
 // One clientId per conversation — messages are immutable once sent, so
-// syncing the same message twice should be a no-op, not a duplicate.
+// syncing the same message twice should be a no-op, not a duplicate. It
+// also serves "all messages of a conversation" (its first field).
 messageSchema.index({ conversationId: 1, clientId: 1 }, { unique: true });
 
 module.exports = mongoose.model('Message', messageSchema);

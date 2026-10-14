@@ -2,8 +2,9 @@
 
 Models live in ai/models/sign/<language>/<unit>/:
 
-    ai/models/sign/fsl/words/    model.keras + labels.json   (FSL-105)
-    ai/models/sign/asl/words/    model.keras + labels.json   (WLASL100)
+    ai/models/sign/fsl/words/    model.keras + labels.json   (FSL-105, 105 words)
+    ai/models/sign/asl/words/    model.keras + labels.json   (WLASL, 125 words)
+                                 + features.json
     ai/models/sign/fsl/letters/  empty until the letter model is trained
     ai/models/sign/asl/letters/  empty until the letter model is trained
 
@@ -11,6 +12,18 @@ To swap or add a model: put model.keras (or model.tflite) and labels.json
 from the SAME training run in the folder, then restart the AI service. An
 optional meta.json changes the settings below (see meta.example.json).
 Nothing else in the app needs to change.
+
+A features.json from the same training run says which extra numbers the
+model reads besides the 207 base ones, e.g. {"hand": true, "velocity": false}
+(see make_features in features.py). No file = the base 207 only. A model
+whose input width doesn't match is marked "not ready" instead of crashing.
+
+Two kinds of input are supported (meta.json "input"):
+  holistic-32  32 frames x 69 Holistic points — the word models (default)
+  hand-21      ONE frame of one hand's 21 points — a typical fingerspelling
+               model. Pair it with "segmentation": "hold" (a letter = the
+               hand held still), and copy the letters notebook's
+               normalization into normalize_hand() below.
 """
 import json
 from dataclasses import dataclass, field
@@ -18,12 +31,17 @@ from pathlib import Path
 
 import numpy as np
 
-from .features import OFF_LHAND, OFF_POSE, T_FRAMES, MIN_HAND_FRACTION, normalize, sample_frame_indices
+from .features import (
+    MIN_HAND_FRACTION, N_HAND, OFF_LHAND, OFF_POSE, OFF_RHAND, T_FRAMES,
+    feature_width, make_features, normalize, sample_frame_indices,
+)
 from .numpy_model import NumpyModel
 
 MODELS_DIR = Path(__file__).resolve().parents[2] / "models" / "sign"
 LANGUAGES = ("fsl", "asl")
 UNITS = ("words", "letters")
+INPUTS = ("holistic-32", "hand-21")
+SEGMENTATIONS = ("auto", "hold")
 
 # Per-language defaults (meta.json can override them).
 DEFAULTS = {
@@ -33,6 +51,32 @@ DEFAULTS = {
     # WLASL clips are trimmed to the sign itself.
     "asl": {"fixed_seconds": None, "min_confidence": 0.5},
 }
+
+
+def normalize_hand(hand):
+    """(21, 2) hand points -> the numbers a hand-21 letters model reads.
+
+    PLACEHOLDER until the letters notebook exists: copy its normalization
+    here EXACTLY (and keep the tester the same), or the model gets numbers
+    it never saw and is wrong without any error. This default is the usual
+    one: relative to the wrist, scaled so the hand's size is 1.
+    """
+    relative = hand - hand[0]
+    size = float(np.max(np.linalg.norm(relative, axis=1)))
+    return relative / size if size > 1e-6 else relative
+
+
+def build_hand21(frames):
+    """(n, 69, 3) frames of a held handshape -> (1, 42), or None if no hand.
+    Uses the frame nearest the middle of the hold (the steadiest), and the
+    right hand if it's there, else the left."""
+    middle = len(frames) // 2
+    for i in sorted(range(len(frames)), key=lambda index: abs(index - middle)):
+        for offset in (OFF_RHAND, OFF_LHAND):
+            hand = frames[i][offset:offset + N_HAND]
+            if hand[:, 2].all():
+                return normalize_hand(hand[:, :2]).reshape(1, -1).astype(np.float32)
+    return None
 
 
 class TfliteRunner:
@@ -65,6 +109,10 @@ class SignModel:
     labels: dict = field(default_factory=dict)
     fixed_seconds: float | None = None
     min_confidence: float = 0.5
+    input: str = "holistic-32"
+    segmentation: str = "auto"
+    # Extra numbers per frame besides the base 207 (features.json).
+    features: dict = field(default_factory=lambda: {"hand": False, "velocity": False})
     problem: str | None = None
 
     @property
@@ -74,14 +122,19 @@ class SignModel:
     def predict(self, frames):
         """frames: (n, 69, 3) raw landmarks -> dict with the top 5, or an error.
         Same checks as the tester's Lang.predict."""
-        n = len(frames)
-        if n < 8:
-            return dict(error="That was too short. Sign a little slower.")
-        seq = frames[sample_frame_indices(n, T_FRAMES)]
-        hand_frames = int((seq[:, OFF_LHAND:OFF_POSE, 2].max(axis=1) > 0).sum())
-        if hand_frames < T_FRAMES * MIN_HAND_FRACTION:
-            return dict(error="Your hands weren't clear enough. Check the light and keep your hands in view.")
-        x = normalize(seq[None])[0].reshape(T_FRAMES, -1)
+        if self.input == "hand-21":
+            x = build_hand21(frames)
+            if x is None:
+                return dict(error="Your hand wasn't clear enough. Hold it still where the camera can see it.")
+        else:
+            n = len(frames)
+            if n < 8:
+                return dict(error="That was too short. Sign a little slower.")
+            seq = frames[sample_frame_indices(n, T_FRAMES)]
+            hand_frames = int((seq[:, OFF_LHAND:OFF_POSE, 2].max(axis=1) > 0).sum())
+            if hand_frames < T_FRAMES * MIN_HAND_FRACTION:
+                return dict(error="Your hands weren't clear enough. Check the light and keep your hands in view.")
+            x = make_features(normalize(seq[None]), **self.features)[0]
         probs = np.asarray(self.runner.predict(x)).reshape(-1)
         order = np.argsort(probs)[::-1]
         return dict(top=[(int(i), float(probs[i])) for i in order[:5]])
@@ -92,6 +145,7 @@ class SignModel:
             "unit": self.unit,
             "available": self.available,
             "signs": len(self.labels),
+            "input": self.input,
             "problem": self.problem,
         }
 
@@ -103,11 +157,15 @@ def _load(language, unit):
     if meta_path.exists():
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            # Every model so far takes 32 frames of the 69 Holistic points. A
-            # model trained on something else (e.g. one hand, one frame — a
-            # possible letters model) needs its own feature code here first.
-            if meta.get("input", "holistic-32") != "holistic-32":
-                model.problem = f"input '{meta['input']}' needs code in ai/app/sign/registry.py"
+            # The inputs this file knows how to build (INPUTS). Anything else
+            # needs its own feature code here first.
+            model.input = meta.get("input", "holistic-32")
+            if model.input not in INPUTS:
+                model.problem = f"input '{model.input}' needs code in ai/app/sign/registry.py"
+                return model
+            model.segmentation = meta.get("segmentation", "hold" if model.input == "hand-21" else "auto")
+            if model.segmentation not in SEGMENTATIONS:
+                model.problem = f"segmentation '{model.segmentation}' isn't one of {', '.join(SEGMENTATIONS)}"
                 return model
             if "fixed_seconds" in meta:
                 model.fixed_seconds = meta["fixed_seconds"]
@@ -138,8 +196,37 @@ def _load(language, unit):
         model.problem = (f"the model has {n_out} outputs but labels.json has {len(model.labels)} "
                          "entries — files from different training runs?")
         return model
+    if model.input == "holistic-32":
+        features_path = folder / "features.json"
+        try:
+            if features_path.exists():
+                wanted = json.loads(features_path.read_text(encoding="utf-8"))
+                model.features = {key: bool(wanted.get(key, False)) for key in ("hand", "velocity")}
+        except (ValueError, TypeError, AttributeError) as error:
+            model.problem = f"features.json is not valid: {error}"
+            return model
+        n_in = _input_width(runner)
+        width = feature_width(**model.features)
+        if n_in is not None and n_in != width:
+            model.problem = (f"the model reads {n_in} numbers per frame but features.json gives {width} "
+                             "— copy features.json from the same training run")
+            return model
     model.runner = runner
     return model
+
+
+def _input_width(runner):
+    """Numbers per frame the model reads (None if it can't be told)."""
+    if isinstance(runner, TfliteRunner):
+        return int(runner.input["shape"][-1])
+    for kind, conf, weights in runner.layers:
+        if kind == "InputLayer":
+            shape = conf.get("batch_shape") or conf.get("batch_input_shape")
+            if shape:
+                return int(shape[-1])
+        if kind == "Dense" and weights:
+            return int(weights[0].shape[0])
+    return None
 
 
 def load_all():

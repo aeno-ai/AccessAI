@@ -39,9 +39,10 @@ export const PROFILE_LABELS: Record<AccessibilityProfile, { title: string; descr
 };
 
 /**
- * The settings each profile turns on or off when it's applied. Accel (the
- * voice assistant) is switched ON by Blind / low vision and left as it is by
- * the others — choosing another profile never takes it away.
+ * The settings each profile turns on or off when it's applied. Every profile
+ * says what Accel (the voice assistant) does: on for Blind / low vision, off
+ * for the others — so switching away from Blind turns it off. It's only the
+ * starting point: Settings → Accel turns it back on for anyone.
  */
 export const PROFILE_PRESETS: Record<AccessibilityProfile, Partial<Preferences>> = {
   none: {
@@ -54,6 +55,8 @@ export const PROFILE_PRESETS: Record<AccessibilityProfile, Partial<Preferences>>
     flashAlerts: false,
     vibrateAlerts: true,
     shakeToSos: false,
+    accelEnabled: false,
+    accelWakeWord: false,
   },
   'blind-low-vision': {
     textScale: 1.3,
@@ -78,6 +81,8 @@ export const PROFILE_PRESETS: Record<AccessibilityProfile, Partial<Preferences>>
     flashAlerts: true,
     vibrateAlerts: true,
     shakeToSos: false,
+    accelEnabled: false,
+    accelWakeWord: false,
   },
   'mute-speech': {
     textScale: 1,
@@ -89,6 +94,8 @@ export const PROFILE_PRESETS: Record<AccessibilityProfile, Partial<Preferences>>
     flashAlerts: false,
     vibrateAlerts: true,
     shakeToSos: false,
+    accelEnabled: false,
+    accelWakeWord: false,
   },
 };
 
@@ -117,14 +124,31 @@ export function suggestedQuickReplies(profile: AccessibilityProfile): string[] {
   return [...PROFILE_QUICK_REPLIES[profile], ...COMMON_QUICK_REPLIES];
 }
 
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((item, index) => item === b[index]);
+
+/**
+ * The quick replies after switching profiles. A list never changed simply
+ * becomes the new profile's. An edited list keeps the user's own replies:
+ * only the old profile's phrase goes (if it's still there, unchanged), and
+ * the new profile's phrase comes first — if there's room.
+ */
+export function quickRepliesAfterSwitch(replies: string[], from: AccessibilityProfile, to: AccessibilityProfile): string[] {
+  if (from === to) return replies;
+  if (sameList(replies, suggestedQuickReplies(from))) return suggestedQuickReplies(to);
+  const kept = replies.filter((reply) => !PROFILE_QUICK_REPLIES[from].includes(reply));
+  const added = PROFILE_QUICK_REPLIES[to].filter((reply) => !kept.includes(reply));
+  return [...added.slice(0, Math.max(0, MAX_QUICK_REPLIES - kept.length)), ...kept];
+}
+
 /**
  * What the Conversation screen does as soon as a shortcut opens it:
  * listen = mic on as Me; captions = speaker Them, mic on; sign = sign
- * language mode; type = cursor in the message box.
+ * language mode; type = cursor in the message box; replies = the quick
+ * replies shown.
  */
-export type ConversationAction = 'listen' | 'captions' | 'sign' | 'type';
+export type ConversationAction = 'listen' | 'captions' | 'sign' | 'type' | 'replies';
 
-/** What a Home "For you" shortcut does when tapped. */
+/** What a Home "Start with…" tile does when tapped. */
 export type ShortcutAction =
   | 'talk' // Conversation with the mic open
   | 'read-last' // read the latest message aloud
@@ -142,8 +166,8 @@ export type HomeShortcut = {
 };
 
 /**
- * Two or three big shortcuts at the top of Home, picked for each profile.
- * Everything they open is also reachable the usual way.
+ * The shortcuts each profile needs most — shown first on Home's "Start
+ * with…" grid, before the standard ones (homeShortcuts below).
  */
 export const PROFILE_SHORTCUTS: Record<AccessibilityProfile, HomeShortcut[]> = {
   none: [],
@@ -182,3 +206,18 @@ export const PROFILE_SHORTCUTS: Record<AccessibilityProfile, HomeShortcut[]> = {
     { action: 'show', icon: 'expand-outline', title: 'Show on screen', description: 'Big text for someone to read.' },
   ],
 };
+
+/** The tiles everyone gets on Home: each opens Conversation ready for one thing. */
+const STANDARD_SHORTCUTS: HomeShortcut[] = [
+  { action: 'captions', icon: 'text-outline', title: 'Live captions', description: 'See what others say as text.' },
+  { action: 'type-to-speak', icon: 'volume-high-outline', title: 'Type to speak', description: 'The phone says what you type.' },
+  { action: 'sign', icon: 'hand-left-outline', title: 'Sign language', description: 'Sign, and it becomes text.' },
+  { action: 'quick-replies', icon: 'flash-outline', title: 'Quick replies', description: 'Say a saved reply in one tap.' },
+];
+
+/** Home's "Start with…" tiles: the profile's own first, then the standard ones (no repeats). */
+export function homeShortcuts(profile: AccessibilityProfile): HomeShortcut[] {
+  const own = PROFILE_SHORTCUTS[profile];
+  const taken = new Set(own.map((shortcut) => shortcut.action));
+  return [...own, ...STANDARD_SHORTCUTS.filter((shortcut) => !taken.has(shortcut.action))];
+}

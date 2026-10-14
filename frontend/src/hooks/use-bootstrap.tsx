@@ -11,12 +11,14 @@ import {
 import { AppState, type AppStateStatus } from 'react-native';
 import { apiFetch } from '@/api/apiClient';
 import { onUnauthorized } from '@/utils/authEvents';
+import { setConversationAccount } from '@/db/conversations';
 import { clearFriendData } from '@/db/friends';
 import { clearCachedContacts } from '@/utils/emergencyContacts';
 import { unregisterPush } from '@/notifications/push';
 import { clearSosCache } from '@/realtime/sosCache';
+import { usePreferences } from '@/hooks/use-preferences';
 import { decodeJwtPayload, isTokenExpired } from '@/utils/jwt';
-import { hasCompletedOnboarding, markOnboardingComplete } from '@/utils/onboardingStorage';
+import { adoptLegacy, hasCompletedOnboarding, markOnboardingComplete } from '@/utils/onboardingStorage';
 import { clearToken, getToken, setToken } from '@/utils/tokenStorage';
 
 export type UserRole = 'pwd' | 'non_pwd';
@@ -30,7 +32,12 @@ type BootstrapContextValue = {
   firstName: string | null;
   /** The signed-in account's id (read from the token), e.g. to check a notification is for them. */
   userId: string | null;
-  signIn: (token: string) => Promise<void>;
+  /**
+   * Stores the login and loads that account's own preferences and
+   * onboarding. `isNew`: a just-created account (verified email, Google
+   * sign-up) — always onboarding, and never the phone's older settings.
+   */
+  signIn: (token: string, options?: { isNew?: boolean }) => Promise<void>;
   signOut: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
 };
@@ -89,7 +96,10 @@ async function resolveSession(token: string | null): Promise<boolean> {
 
   try {
     // Short timeout: a server that's down shouldn't hold the splash screen.
-    await apiFetch('/auth/me', { timeoutMs: 6000 });
+    const me = await apiFetch<{ token?: string }>('/auth/me', { timeoutMs: 6000 });
+    // A login in use is renewed for another 30 days (the server sends a
+    // fresh token once a day), so it never runs out while the app is used.
+    if (typeof me?.token === 'string' && me.token) await setToken(me.token);
     return true;
   } catch {
     if (unauthorized) {
@@ -105,6 +115,9 @@ async function resolveSession(token: string | null): Promise<boolean> {
 }
 
 export function BootstrapProvider({ children }: { children: ReactNode }) {
+  // Outside this provider (display settings load before the splash hides);
+  // each sign-in switches it to that account's own preferences.
+  const { loadAccount } = usePreferences();
   const [ready, setReady] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [hasOnboarded, setHasOnboarded] = useState(false);
@@ -117,15 +130,24 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
 
     async function hydrate() {
-      const [token, onboarded] = await Promise.all([getToken(), hasCompletedOnboarding()]);
+      const token = await getToken();
       const valid = await resolveSession(token);
+      const id = valid ? userIdFromToken(token) : null;
+      // The account signed in when this version first runs keeps the
+      // phone's old onboarding and preferences (see adoptLegacy).
+      if (id) {
+        await adoptLegacy(id);
+        await setConversationAccount(id, { adopt: true });
+        await loadAccount(id);
+      }
+      const onboarded = valid ? await hasCompletedOnboarding(id) : false;
       if (cancelled) {
         return;
       }
       setIsLoggedIn(valid);
       setRole(valid ? roleFromToken(token) : null);
       setFirstName(valid ? firstNameFromToken(token) : null);
-      setUserId(valid ? userIdFromToken(token) : null);
+      setUserId(id);
       setHasOnboarded(onboarded);
       setReady(true);
     }
@@ -134,15 +156,26 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAccount]);
 
-  const signIn = useCallback(async (token: string) => {
-    await setToken(token);
-    setRole(roleFromToken(token));
-    setFirstName(firstNameFromToken(token));
-    setUserId(userIdFromToken(token));
-    setIsLoggedIn(true);
-  }, []);
+  const signIn = useCallback(
+    async (token: string, options: { isNew?: boolean } = {}) => {
+      await setToken(token);
+      const id = userIdFromToken(token);
+      // Before the app shows: this account's own text size, colors, Accel…
+      if (id && !options.isNew) await adoptLegacy(id);
+      // Only this account's in-person conversations from here on.
+      await setConversationAccount(id, { adopt: !options.isNew });
+      await loadAccount(id);
+      const onboarded = options.isNew ? false : await hasCompletedOnboarding(id);
+      setRole(roleFromToken(token));
+      setFirstName(firstNameFromToken(token));
+      setUserId(id);
+      setHasOnboarded(onboarded);
+      setIsLoggedIn(true);
+    },
+    [loadAccount],
+  );
 
   const signOut = useCallback(async () => {
     // Before the token goes: telling the server needs it.
@@ -154,18 +187,22 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
     await clearCachedContacts();
     await clearFriendData().catch(() => undefined);
     await clearSosCache();
+    // Their preferences, and their in-person conversations (hidden from
+    // anyone else), stay saved for when they log back in.
+    await setConversationAccount(null);
+    await loadAccount(null);
     setIsLoggedIn(false);
     setRole(null);
     setFirstName(null);
     setUserId(null);
-  }, []);
+  }, [loadAccount]);
 
   const completeOnboarding = useCallback(async () => {
-    await markOnboardingComplete();
+    if (userId) await markOnboardingComplete(userId);
     setHasOnboarded(true);
-  }, []);
+  }, [userId]);
 
-  // A token stays valid for 7 days, so it can silently expire while the app
+  // A token stays valid for 30 days, so it can silently expire while the app
   // sits backgrounded. Re-check whenever the app returns to the foreground
   // so a stale dashboard isn't left showing until some other API call
   // happens to fail.

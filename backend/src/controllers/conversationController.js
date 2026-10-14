@@ -15,20 +15,29 @@ const syncConversation = async (req, res, next) => {
     const conversation = await Conversation.findOneAndUpdate(
       { userId: req.user.userId, clientId },
       { userId: req.user.userId, clientId, title, mode },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
-    for (const message of messages) {
-      await Message.findOneAndUpdate(
-        { conversationId: conversation._id, clientId: message.clientId },
-        {
-          conversationId: conversation._id,
-          clientId: message.clientId,
-          sender: message.sender,
-          body: message.body,
-          clientCreatedAt: message.createdAt,
-        },
-        { upsert: true, setDefaultsOnInsert: true },
+    // All the messages in one database call, not one per message. The app
+    // sends only messages newer than its last sync, at most 200 at a time.
+    if (messages.length) {
+      await Message.bulkWrite(
+        messages.map((message) => ({
+          updateOne: {
+            filter: { conversationId: conversation._id, clientId: message.clientId },
+            update: {
+              $set: {
+                conversationId: conversation._id,
+                clientId: message.clientId,
+                sender: message.sender,
+                body: message.body,
+                clientCreatedAt: message.createdAt,
+              },
+            },
+            upsert: true,
+          },
+        })),
+        { ordered: false },
       );
     }
 

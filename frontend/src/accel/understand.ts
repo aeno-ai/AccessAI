@@ -1,6 +1,6 @@
 import NetInfo from '@react-native-community/netinfo';
 import { apiFetch } from '@/api/apiClient';
-import { isIntentId, type Slots } from '@/accel/catalog';
+import { isIntentId, type IntentId, type Slots } from '@/accel/catalog';
 import { matchRules, type Understood } from '@/accel/rules';
 
 export type Understanding = Understood & { source: 'phone' | 'ai' };
@@ -30,8 +30,11 @@ function cleanSlots(slots: unknown): Slots {
  * internet, the AI on the AccessAI server. Whatever happens, the answer is
  * one of the ids in catalog.ts — anything else counts as "didn't catch that".
  */
-export async function understand(text: string, options: { smart: boolean; screen: string }): Promise<Understanding> {
-  const local = matchRules(text);
+export async function understand(
+  text: string,
+  options: { smart: boolean; screen: string; offers?: (intent: IntentId, slots: Slots) => boolean },
+): Promise<Understanding> {
+  const local = matchRules(text, options.offers);
   if (local.confidence >= SURE || !options.smart) return { ...local, source: 'phone' };
   try {
     if (!(await online())) throw new Error('offline');

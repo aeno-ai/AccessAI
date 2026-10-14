@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { AuthInput } from '@/components/auth/AuthInput';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { RoleSelector } from '@/components/auth/RoleSelector';
@@ -18,6 +18,7 @@ import { MaxContentWidth } from '@/constants/theme';
 import { apiFetch } from '@/api/apiClient';
 import { useBootstrap, type UserRole } from '@/hooks/use-bootstrap';
 import { useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
+import { goBack } from '@/utils/navigation';
 
 type CompleteResponse = {
   token: string;
@@ -69,8 +70,9 @@ export default function GoogleSignupScreen() {
           pwdDeclaration: role === 'pwd' && pwdDeclared,
         }),
       });
-      // The root layout's guards take the new user on into onboarding.
-      await signIn(data.token);
+      // The root layout's guards take the new user on into onboarding —
+      // always, and with its own preferences (a brand-new account).
+      await signIn(data.token, { isNew: true });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not create your account');
       setLoading(false);
@@ -129,12 +131,13 @@ export default function GoogleSignupScreen() {
 
           <PrimaryButton
             title="Create Account"
+            loadingTitle="Creating account…"
             onPress={() => void handleCreate()}
             loading={loading}
             disabled={!firstName.trim() || !lastName.trim() || !role || !consentGiven}
           />
 
-          <TouchableOpacity onPress={() => router.back()} style={styles.linkWrap} accessibilityRole="button">
+          <TouchableOpacity onPress={() => goBack('/login')} style={styles.linkWrap} accessibilityRole="button">
             <Text style={styles.linkText}>
               {'Not you? '}
               <Text style={styles.linkAccent}>Go back</Text>

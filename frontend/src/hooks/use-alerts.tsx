@@ -87,8 +87,9 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
       if (screenReaderOn) {
         announce(text);
       } else if (kind !== 'message' || prefs.readIncomingAloud) {
-        // Anything about an SOS is always spoken; ordinary messages only if asked for.
-        void speakMixed(text, { rate: prefs.speechRate });
+        // Anything about an SOS is always spoken, and nothing else cuts it off;
+        // ordinary messages only if asked for.
+        void speakMixed(text, { rate: prefs.speechRate, sos: kind !== 'message' });
       }
     },
     [prefs.vibrateAlerts, prefs.flashAlerts, prefs.readIncomingAloud, prefs.speechRate, screenReaderOn, startFlash],

@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as Speech from 'expo-speech';
-import { block, unblock } from '@/audio/recognizer';
+import { setAppSpeech } from '@/audio/recognizer';
 
 /**
  * Handles "Taglish" messages — English and Filipino mixed in the same
@@ -175,8 +175,13 @@ export function setDefaultVoices(voices: ClauseVoices): void {
   defaultVoices = voices;
 }
 
+// Ends the clause being spoken right now. A stop ends it at once, without
+// waiting for the phone to report it stopped.
+let endClause: (() => void) | null = null;
+
 function speakClause(clause: SpeechClause, rate: number, voice: string | null | undefined): Promise<void> {
   return new Promise((resolve) => {
+    endClause = resolve;
     Speech.speak(clause.text, {
       // Android reads "fil-PH" as one unknown language, so it gets the plain
       // language code; iPhones want the full locale.
@@ -192,54 +197,106 @@ function speakClause(clause: SpeechClause, rate: number, voice: string | null | 
   });
 }
 
-// While anything is being spoken, "Hey Accel" must not listen — it would
-// hear the app itself.
+// "Hey Accel" keeps listening while the app talks (so it can interrupt), and
+// is told what's being said, so the app's own voice can't wake it.
 let speaking = 0;
 
-// Tracks whether the in-flight speakMixed() call has been cancelled, so its
-// clause-by-clause loop stops instead of continuing to speak after
-// stopMixed() is called. expo-speech only ever speaks one utterance at a
-// time globally, so a single module-level flag is enough here — there's
-// never more than one "session" actually playing at once.
-let cancelled = false;
+// Bumped by every stop. A message started before the last stop never goes
+// on: its clause-by-clause loop checks this before each clause.
+let generation = 0;
+
+// The message being spoken now: who started it, and whether it's about an
+// SOS. Null when the app is quiet.
+let current: { generation: number; owner: string | null; sos: boolean } | null = null;
+
+function stopAll(): void {
+  generation += 1;
+  current = null;
+  void Speech.stop();
+  endClause?.();
+  endClause = null;
+}
+
+export type SpeakOptions = {
+  /** The user's voice speed (1 = normal), from Settings. */
+  rate?: number;
+  voices?: ClauseVoices;
+  /**
+   * About an SOS. Only more SOS speech, or an SOS screen's own stop, cuts it
+   * off; ordinary speech that starts meanwhile is skipped.
+   */
+  sos?: boolean;
+  /** Who's speaking, so `stopMixed({ owner })` stops only this. */
+  owner?: string;
+  /** Said to the end. */
+  onDone?: () => void;
+  /** Over for any reason: said to the end, cut off, or skipped. */
+  onEnd?: () => void;
+  onError?: (error: unknown) => void;
+};
 
 /**
  * Speaks a full message clause by clause, switching between the Filipino
- * and English voice as needed. Callbacks mirror `Speech.speak`'s shape so
- * callers (e.g. MessageBubble) can swap this in as a drop-in replacement.
- * `rate` is the user's voice speed (1 = normal), from Settings.
+ * and English voice as needed.
+ *
+ * The newest message always wins: whatever was being said stops first, so
+ * tapping a read-aloud button again starts it over instead of piling up
+ * readings. The one exception is SOS speech (`sos`).
+ *
+ * Resolves true when the message was said to the end, false when it was
+ * cut off or skipped.
  */
-export async function speakMixed(
-  message: string,
-  options?: { rate?: number; voices?: ClauseVoices; onDone?: () => void; onError?: (error: unknown) => void },
-): Promise<void> {
-  cancelled = false;
+export async function speakMixed(message: string, options: SpeakOptions = {}): Promise<boolean> {
+  if (current?.sos && !options.sos) {
+    options.onEnd?.();
+    return false;
+  }
+  stopAll();
+  const mine = generation;
+  current = { generation: mine, owner: options.owner ?? null, sos: options.sos === true };
   speaking += 1;
-  block('tts');
-  const voices = options?.voices ?? defaultVoices;
+  setAppSpeech(message);
+  const voices = options.voices ?? defaultVoices;
+  let said = false;
   try {
-    const clauses = analyzeSpeechClauses(message);
-    for (const clause of clauses) {
-      if (cancelled) {
-        return;
+    for (const clause of analyzeSpeechClauses(message)) {
+      if (mine !== generation) {
+        return false;
       }
-      await speakClause(clause, options?.rate ?? 1, voices[clause.language]);
+      await speakClause(clause, options.rate ?? 1, voices[clause.language]);
     }
-    if (!cancelled) {
-      options?.onDone?.();
+    said = mine === generation;
+    if (said) {
+      options.onDone?.();
     }
+    return said;
   } catch (error) {
-    options?.onError?.(error);
+    options.onError?.(error);
+    return false;
   } finally {
+    if (current?.generation === mine) {
+      current = null;
+    }
     speaking -= 1;
-    // A short pause before listening again, so the end of the sentence
-    // (and its echo) isn't heard.
-    if (speaking === 0) setTimeout(() => speaking === 0 && unblock('tts'), 400);
+    // Counted as talking a little longer, so the end of the sentence (and
+    // its echo) still counts as the app's own voice.
+    if (speaking === 0) setTimeout(() => speaking === 0 && setAppSpeech(null), 400);
+    options.onEnd?.();
   }
 }
 
-/** Stops whatever `speakMixed` is currently speaking, mid-message if needed. */
-export function stopMixed(): void {
-  cancelled = true;
-  void Speech.stop();
+/**
+ * Stops what `speakMixed` is saying, mid-message if needed.
+ * - `owner`: only if that owner's message is the one playing, so a bubble
+ *   or Accel stopping its own reading never cuts off someone else's.
+ * - SOS speech stops only for an SOS screen (`sos: true`).
+ */
+export function stopMixed(options: { owner?: string; sos?: boolean } = {}): void {
+  if (current?.sos && !options.sos) {
+    return;
+  }
+  if (options.owner !== undefined && current?.owner !== options.owner) {
+    return;
+  }
+  stopAll();
 }

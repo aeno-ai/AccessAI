@@ -39,50 +39,59 @@ const listFriends = async (req, res, next) => {
     const friendships = await Friendship.find({
       status: 'accepted',
       $or: [{ requester: me }, { recipient: me }],
-    });
+    }).lean();
 
     const otherIds = friendships.map((f) => otherIdOf(f, me));
-    const users = await User.find({ _id: { $in: otherIds }, ...USABLE_ACCOUNT }).select(PUBLIC_FIELDS);
+    const users = await User.find({ _id: { $in: otherIds }, ...USABLE_ACCOUNT }).select(PUBLIC_FIELDS).lean();
     const usersById = new Map(users.map((u) => [String(u._id), u]));
 
-    const friends = [];
-    for (const friendship of friendships) {
-      const other = usersById.get(String(otherIdOf(friendship, me)));
-      if (!other) continue; // deactivated or being deleted — hidden, not removed
+    // Every friend's last message and unread count at once, not one friend
+    // after another (2 quick indexed queries per friend).
+    const rows = await Promise.all(friendships.map(async (friendship) => {
+      const otherId = otherIdOf(friendship, me);
+      const other = usersById.get(String(otherId));
+      if (!other) return null; // deactivated or being deleted — hidden, not removed
       const mine = isRequester(friendship, me);
       const readAt = mine ? friendship.requesterReadAt : friendship.recipientReadAt;
 
       const [lastMessage, unread] = await Promise.all([
-        DirectMessage.findOne({ friendshipId: friendship._id }).sort({ createdAt: -1 }),
+        DirectMessage.findOne({ friendshipId: friendship._id })
+          .sort({ createdAt: -1 })
+          .select('body kind senderId createdAt')
+          .lean(),
+        // "Theirs, after I last read": in a chat between two people, not
+        // mine means the friend's — which the index alone can count.
         DirectMessage.countDocuments({
           friendshipId: friendship._id,
-          senderId: { $ne: me },
+          senderId: otherId,
           ...(readAt ? { createdAt: { $gt: readAt } } : {}),
         }),
       ]);
 
-      friends.push({
+      return {
         ...publicProfile(other),
         friendshipId: String(friendship._id),
         online: isOnline(other._id),
-        // You put them in your SOS circle / they put you in theirs.
-        inMySosCircle: mine ? friendship.requesterSos : friendship.recipientSos,
-        inTheirSosCircle: mine ? friendship.recipientSos : friendship.requesterSos,
+        // You put them in your SOS circle / they put you in theirs. (`=== true`:
+        // lean() results skip schema defaults, and old pairs may lack the flag.)
+        inMySosCircle: (mine ? friendship.requesterSos : friendship.recipientSos) === true,
+        inTheirSosCircle: (mine ? friendship.recipientSos : friendship.requesterSos) === true,
         // When they last read the chat — for "Seen" under your messages.
         theirReadAt: (mine ? friendship.recipientReadAt : friendship.requesterReadAt)?.getTime() ?? null,
         unread,
         lastMessage: lastMessage
           ? {
               body: lastMessage.body,
-              kind: lastMessage.kind,
+              kind: lastMessage.kind ?? 'text',
               fromMe: String(lastMessage.senderId) === String(me),
               createdAt: lastMessage.createdAt.getTime(),
             }
           : null,
-      });
-    }
+      };
+    }));
 
     // Most recent conversation first, then friends never messaged, by name.
+    const friends = rows.filter(Boolean);
     friends.sort(
       (a, b) =>
         (b.lastMessage?.createdAt ?? 0) - (a.lastMessage?.createdAt ?? 0) || a.name.localeCompare(b.name),

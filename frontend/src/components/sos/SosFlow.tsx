@@ -25,9 +25,12 @@ import {
   EMERGENCY_NUMBER,
   joinNames,
   locate,
+  PLACE_LOOKUP_MS,
+  shareSosLocation,
   textEmergencyContacts,
   triggerSos,
   type Coordinates,
+  type PendingSos,
   type SosMethod,
   type SosResult,
 } from '@/utils/sos';
@@ -46,6 +49,8 @@ type SosFlowProps = {
   method: SosMethod;
   /** The SOS reached AccessAI (starts live location sharing). */
   onSent: (result: SosResult & { sent: true }) => void;
+  /** No internet: keep it on the phone, to send once back online. */
+  onQueued: (sos: PendingSos) => Promise<void> | void;
   /** "I'm safe" — throws a readable error if it can't be sent. */
   onMarkSafe: () => Promise<void>;
   onClose: () => void;
@@ -60,7 +65,7 @@ type SosFlowProps = {
  * works without internet. The text opens by itself; the person presses Send
  * (phones never let apps text silently).
  */
-export function SosFlow({ kind, method, onSent, onMarkSafe, onClose }: SosFlowProps) {
+export function SosFlow({ kind, method, onSent, onQueued, onMarkSafe, onClose }: SosFlowProps) {
   const { prefs } = usePreferences();
   const { colors } = useAppTheme();
   const styles = useThemedStyles(makeStyles);
@@ -75,19 +80,31 @@ export function SosFlow({ kind, method, onSent, onMarkSafe, onClose }: SosFlowPr
   const [result, setResult] = useState<SosResult | null>(null);
   const [textNote, setTextNote] = useState('');
   const [safe, setSafe] = useState<'idle' | 'sending' | 'done'>('idle');
+  // Saved on the phone (no internet), to go out once back online.
+  const [queued, setQueued] = useState(false);
   const cancelRef = useRef<View>(null);
   const locating = useRef<Promise<Coordinates | null> | null>(null);
+  // The readable place, looked up from the location (usually needs internet).
+  const placing = useRef<Promise<string | null> | null>(null);
+  const placeRef = useRef<string | null>(null);
   const autoTexted = useRef(false);
 
-  // Start finding the location straight away, in parallel with the countdown.
+  // Start finding the location straight away, in parallel with the countdown
+  // — then the place, which never holds the SOS up.
   useEffect(() => {
     let cancelled = false;
     locating.current = locate();
+    placing.current = locating.current.then((found) => describePlace(found, PLACE_LOOKUP_MS));
     void locating.current.then((found) => {
       if (cancelled) return;
       setCoords(found);
       setLocated(true);
       setMessage((current) => (current === defaultSosMessage(null) ? defaultSosMessage(found) : current));
+      void placing.current?.then((place) => {
+        placeRef.current = place;
+        if (cancelled || !place) return;
+        setMessage((current) => (current === defaultSosMessage(found) ? defaultSosMessage(found, place) : current));
+      });
     });
     return () => {
       cancelled = true;
@@ -98,7 +115,7 @@ export function SosFlow({ kind, method, onSent, onMarkSafe, onClose }: SosFlowPr
   // always spoken.
   const speakOrAnnounce = (text: string) => {
     if (screenReaderOn) announce(text);
-    else if (prefs.readIncomingAloud || method === 'voice') void speakMixed(text, { rate: prefs.speechRate });
+    else if (prefs.readIncomingAloud || method === 'voice') void speakMixed(text, { rate: prefs.speechRate, sos: true });
   };
 
   const openText = async (body: string, where: Coordinates | null) => {
@@ -109,18 +126,28 @@ export function SosFlow({ kind, method, onSent, onMarkSafe, onClose }: SosFlowPr
   };
 
   // `text` omitted (the countdown): the default message, with the location
-  // (and a readable place, if the phone can look it up quickly).
+  // (and the readable place, if it's already known). The SOS goes out at
+  // once; a place found later follows to friends as an update.
   const send = async (text?: string) => {
     setStep('sending');
+    const pressedAt = Date.now();
     const where = (await locating.current) ?? null;
-    const place = await describePlace(where);
-    const body = text ?? defaultSosMessage(where, place);
-    const outcome = await triggerSos({ method, message: body, coords: where, place, isTest });
+    const placeNow = placeRef.current;
+    const body = text ?? defaultSosMessage(where, placeNow);
+    const outcome = await triggerSos({ method, message: body, coords: where, place: placeNow, isTest });
     setResult(outcome);
     setStep('result');
+    // For the text: the place too, if it arrived while the SOS was sending.
+    const textBody = text ?? defaultSosMessage(where, placeRef.current);
 
     if (outcome.sent) {
       onSent(outcome);
+      const eventId = outcome.eventId;
+      if (!placeNow && where && eventId) {
+        void placing.current?.then((place) => {
+          if (place) void shareSosLocation(eventId, where, { place }).catch(() => undefined);
+        });
+      }
       const who = outcome.alertedNames.length ? joinNames(outcome.alertedNames) : null;
       if (isTest) {
         speakOrAnnounce(who ? `Test sent to ${who}. No text is sent.` : 'Test sent. Nobody is in your SOS circle yet.');
@@ -130,10 +157,16 @@ export function SosFlow({ kind, method, onSent, onMarkSafe, onClose }: SosFlowPr
         `${who ? `SOS sent to ${who}.` : 'SOS saved. Nobody is in your SOS circle yet.'} Opening a text to your emergency contacts.`,
       );
     } else if (outcome.offline) {
+      if (isTest) {
+        speakOrAnnounce('No internet, so the test could not be sent.');
+        return;
+      }
+      // Kept on the phone: friends get it the moment it's back online.
+      await onQueued({ message: body, method, place: placeNow, coords: where, occurredAt: pressedAt });
+      setQueued(true);
       speakOrAnnounce(
-        isTest ? 'No internet, so the test could not be sent.' : 'No internet. Opening a text message to your emergency contacts.',
+        "No internet. Your friends get the SOS when you're back online. Opening a text message to your emergency contacts.",
       );
-      if (isTest) return;
     } else {
       speakOrAnnounce(`SOS not sent. ${outcome.error} Opening a text to your emergency contacts.`);
       if (isTest) return;
@@ -141,7 +174,7 @@ export function SosFlow({ kind, method, onSent, onMarkSafe, onClose }: SosFlowPr
     // A real SOS always tries a text too — once.
     if (!autoTexted.current) {
       autoTexted.current = true;
-      const opened = await openText(body, where);
+      const opened = await openText(textBody, where);
       if (opened === 'no-contacts') speakOrAnnounce('You have no emergency contacts saved on this phone.');
     }
   };
@@ -151,7 +184,9 @@ export function SosFlow({ kind, method, onSent, onMarkSafe, onClose }: SosFlowPr
     try {
       await onMarkSafe();
       setSafe('done');
-      speakOrAnnounce("Your SOS has ended. Your friends were told you're safe.");
+      speakOrAnnounce(
+        result?.sent ? "Your SOS has ended. Your friends were told you're safe." : "Okay. Your SOS won't be sent.",
+      );
     } catch (error) {
       setSafe('idle');
       speakOrAnnounce(error instanceof Error ? error.message : "Couldn't send that. Try again.");
@@ -197,7 +232,7 @@ export function SosFlow({ kind, method, onSent, onMarkSafe, onClose }: SosFlowPr
   }, [step]);
 
   const close = () => {
-    stopMixed();
+    stopMixed({ sos: true });
     Vibration.cancel();
     onClose();
   };
@@ -296,6 +331,7 @@ export function SosFlow({ kind, method, onSent, onMarkSafe, onClose }: SosFlowPr
                 <ResultView
                   result={result}
                   isTest={isTest}
+                  queued={queued}
                   hasLocation={coords !== null}
                   textNote={textNote}
                   safe={safe}
@@ -318,6 +354,8 @@ export function SosFlow({ kind, method, onSent, onMarkSafe, onClose }: SosFlowPr
 type ResultViewProps = {
   result: SosResult;
   isTest: boolean;
+  /** Saved on the phone, to go out once back online. */
+  queued: boolean;
   hasLocation: boolean;
   textNote: string;
   safe: 'idle' | 'sending' | 'done';
@@ -332,6 +370,7 @@ type ResultViewProps = {
 function ResultView({
   result,
   isTest,
+  queued,
   hasLocation,
   textNote,
   safe,
@@ -366,8 +405,13 @@ function ResultView({
       }
     }
   } else if (result.offline) {
-    lines.push("No internet, so the SOS couldn't go through AccessAI.");
-    if (!isTest) lines.push('Text your emergency contacts instead — texts work without internet.');
+    if (queued) {
+      lines.push("No internet right now. Your SOS is saved on this phone: your friends get it the moment you're back online.");
+      lines.push('Text your emergency contacts too — texts work without internet.');
+    } else {
+      lines.push("No internet, so the SOS couldn't go through AccessAI.");
+      if (!isTest) lines.push('Text your emergency contacts instead — texts work without internet.');
+    }
   } else {
     lines.push(`The SOS wasn't sent: ${result.error}`);
   }
@@ -388,7 +432,7 @@ function ResultView({
         </Text>
       ))}
 
-      {result.sent && !isTest && result.eventId ? (
+      {(result.sent && !isTest && result.eventId) || (queued && !isTest) ? (
         <Pressable
           style={[styles.safeButton, safe !== 'idle' && styles.pressed]}
           onPress={onMarkSafe}
@@ -401,7 +445,15 @@ function ResultView({
           ) : (
             <Ionicons name="shield-checkmark-outline" size={22} color={colors.onPrimary} />
           )}
-          <Text style={styles.safeText}>{safe === 'done' ? 'Friends were told you’re safe' : 'I’m safe now'}</Text>
+          <Text style={styles.safeText}>
+            {safe === 'done'
+              ? result.sent
+                ? 'Friends were told you’re safe'
+                : 'Your SOS won’t be sent'
+              : queued && !result.sent
+                ? 'I’m safe now — don’t send it'
+                : 'I’m safe now'}
+          </Text>
         </Pressable>
       ) : null}
 

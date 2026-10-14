@@ -2,22 +2,29 @@ import { Image, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 
-const logoSource = require('@/assets/images/PDAccessAI-logo.png');
+const logoSource = require('@/assets/images/AccessAI-logo.png');
+const markSource = require('@/assets/images/AccessAI-mark.png');
 
 type AppLogoProps = {
   size?: number;
-  /** Hide from screen readers — for when "PDAccessAI" is written right next to it. */
+  /** Hide from screen readers — for when "AccessAI" is written right next to it. */
   decorative?: boolean;
+  /** The mark without the "AccessAI" lettering — for when it's written right next to it. */
+  markOnly?: boolean;
 };
 
-export function AppLogo({ size = 96, decorative }: AppLogoProps) {
+/**
+ * The AccessAI logo, a rounded tile with its own gradient. Smaller than
+ * 100 px its lettering would be too small to read, so the mark alone shows.
+ */
+export function AppLogo({ size = 96, decorative, markOnly = size < 100 }: AppLogoProps) {
   return (
     <Image
-      source={logoSource}
-      style={{ width: size, height: size }}
-      resizeMode="contain"
+      source={markOnly ? markSource : logoSource}
+      style={{ width: size, height: size, borderRadius: Math.round(size * 0.22) }}
+      resizeMode="cover"
       accessible={!decorative}
-      accessibilityLabel={decorative ? undefined : 'PDAccessAI logo'}
+      accessibilityLabel={decorative ? undefined : 'AccessAI logo'}
       accessibilityElementsHidden={decorative}
       importantForAccessibility={decorative ? 'no' : 'auto'}
     />
@@ -88,12 +95,11 @@ const makeStyles = (t: AppTheme) =>
       right: 48,
       opacity: 0.18,
     },
-    // The logo artwork is drawn for a white background, whatever the theme.
+    // The logo has its own gradient tile; the colour here only gives the shadow a shape.
     logoWrap: {
       zIndex: 1,
-      backgroundColor: '#FFFFFF',
-      borderRadius: 32,
-      padding: 12,
+      backgroundColor: '#5362C8',
+      borderRadius: 33,
       shadowColor: t.colors.primary,
       shadowOpacity: t.isDark ? 0 : 0.18,
       shadowRadius: 18,

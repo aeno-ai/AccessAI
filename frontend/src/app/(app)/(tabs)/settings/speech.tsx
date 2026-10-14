@@ -25,8 +25,8 @@ const SPEED_OPTIONS: { value: SpeechRate; label: string }[] = [
 
 const OFFLINE_LANGUAGE_OPTIONS: { value: OfflineSpeechLanguage; label: string; description: string }[] = [
   { value: 'auto', label: 'Automatic', description: 'Filipino if it’s downloaded, otherwise English.' },
-  { value: 'fil', label: 'Filipino', description: 'Prefer the Filipino model when offline.' },
-  { value: 'en', label: 'English', description: 'Prefer the English model when offline.' },
+  { value: 'fil', label: 'Filipino', description: 'Understand Filipino best without internet.' },
+  { value: 'en', label: 'English', description: 'Understand English best without internet.' },
 ];
 
 export default function SpeechSettingsScreen() {
@@ -70,7 +70,7 @@ export default function SpeechSettingsScreen() {
           description={
             speechToTextSupported
               ? 'Live captions: the mic opens by itself when it switches to Them.'
-              : 'Needs the AccessAI app build with speech-to-text (not Expo Go).'
+              : 'Speech-to-text isn’t available on this phone.'
           }
           value={prefs.autoListenForThem}
           onValueChange={(value) => setPref('autoListenForThem', value)}
@@ -114,9 +114,9 @@ export default function SpeechSettingsScreen() {
       <SectionHeader title="Voice speed" />
       <RadioGroup label="Voice speed" value={prefs.speechRate} onChange={chooseSpeed} options={SPEED_OPTIONS} />
 
-      <SectionHeader title="Offline listening language" />
+      <SectionHeader title="Language without internet" />
       <RadioGroup
-        label="Offline listening language"
+        label="Language without internet"
         value={prefs.offlineSpeechLanguage}
         onChange={(value) => setPref('offlineSpeechLanguage', value)}
         options={OFFLINE_LANGUAGE_OPTIONS}

@@ -1,19 +1,28 @@
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import { apiFetch } from '@/api/apiClient';
 import { AuthInput } from '@/components/auth/AuthInput';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { IconButton } from '@/components/ui/IconButton';
 import { KeyboardAvoider } from '@/components/ui/KeyboardAvoider';
+import { SectionHeader, SettingRow } from '@/components/ui/SettingRow';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { useBootstrap } from '@/hooks/use-bootstrap';
 import { useIsOnline } from '@/hooks/use-is-online';
 import { announce } from '@/utils/a11y';
+import { goBack } from '@/utils/navigation';
 
-type Profile = { email: string; firstName: string; lastName: string; friendCode?: string; friendNote: string };
+type Profile = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  friendCode?: string;
+  friendNote: string;
+  hasPassword?: boolean;
+};
 type MeResponse = { user: Profile };
 type UpdateResponse = { token: string; user: Profile };
 
@@ -22,8 +31,8 @@ const MAX_NOTE_LENGTH = 80;
 
 /**
  * "Edit profile" — the person icon on Home and the first item in the menu.
- * Only personal details live here; accessibility preferences are in the
- * Settings tab. Saving needs the internet (the name lives on the account),
+ * Personal details, plus "Sign-in" (change email, change password);
+ * accessibility preferences are in the Settings tab. Saving needs the internet (the name lives on the account),
  * and the new name shows offline straight after, because the fresh login
  * token the server answers with carries it.
  */
@@ -103,7 +112,7 @@ export default function ProfileScreen() {
     <ScreenShell maxWidth={MaxContentWidth.app}>
       <KeyboardAvoider>
         <View style={styles.header}>
-          <IconButton icon="arrow-back" label="Go back" onPress={() => router.back()} />
+          <IconButton icon="arrow-back" label="Go back" onPress={() => goBack()} />
           <Text style={styles.headerTitle} accessibilityRole="header">
             Edit profile
           </Text>
@@ -147,11 +156,6 @@ export default function ProfileScreen() {
                 Shown to your friends next to your name. Only write what you&apos;re comfortable sharing.
               </Text>
 
-              <Text style={styles.fieldLabel}>Email</Text>
-              <Text style={styles.readOnly} accessibilityLabel={`Email: ${profile.email}. Can't be changed here.`}>
-                {profile.email}
-              </Text>
-
               {profile.friendCode ? (
                 <>
                   <Text style={[styles.fieldLabel, styles.spaced]}>Friend code</Text>
@@ -181,7 +185,24 @@ export default function ProfileScreen() {
               ) : null}
 
               <View style={styles.saveWrap}>
-                <PrimaryButton title="Save changes" onPress={() => void save()} loading={saving} disabled={!canSave} />
+                <PrimaryButton title="Save changes" loadingTitle="Saving…" onPress={() => void save()} loading={saving} disabled={!canSave} />
+              </View>
+
+              <SectionHeader title="Sign-in" />
+              <View style={styles.card}>
+                <SettingRow
+                  icon="mail-outline"
+                  title="Email"
+                  description={profile.email}
+                  onPress={() => router.push('/change-email' as Href)}
+                />
+                <SettingRow
+                  divided
+                  icon="lock-closed-outline"
+                  title="Password"
+                  description={profile.hasPassword === false ? 'Signs in with Google' : 'Change your password'}
+                  onPress={() => router.push('/change-password' as Href)}
+                />
               </View>
             </>
           ) : null}
@@ -260,5 +281,12 @@ const makeStyles = (t: AppTheme) =>
     },
     saveWrap: {
       marginTop: Spacing.four,
+    },
+    card: {
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      borderRadius: 14,
+      backgroundColor: t.colors.surface,
+      overflow: 'hidden',
     },
   });

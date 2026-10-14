@@ -11,7 +11,6 @@ import { formatDateTime, ROLE_LABELS } from '../utils/format';
 import { EMAIL_REGEX, generateTemporaryPassword, isStrongPassword } from '../utils/validation';
 
 const ROLE_DESCRIPTIONS: Record<AdminRole, string> = {
-  viewer: 'Can view users. Cannot change anything.',
   admin: 'Can view users and deactivate or reactivate their accounts.',
   super_admin: 'Everything an admin can do, plus managing other admins.',
 };
@@ -307,7 +306,7 @@ function CreateAdminDialog({
 }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<AdminRole>('viewer'); // least privilege by default
+  const [role, setRole] = useState<AdminRole>('admin'); // the less powerful role by default
   const [password, setPassword] = useState(generateTemporaryPassword);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);

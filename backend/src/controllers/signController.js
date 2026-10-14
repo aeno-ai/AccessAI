@@ -9,7 +9,7 @@ const { callAi, AiUnavailable } = require('../utils/aiClient');
 // Every session belongs to the account that started it: the AI service is
 // told the owner, and refuses pieces from anyone else.
 
-const OFFLINE = { message: 'Sign language needs the AccessAI server, which is not reachable right now.', code: 'SIGN_OFFLINE' };
+const OFFLINE = { message: "Sign language isn't working right now. You can still type.", code: 'SIGN_OFFLINE' };
 
 function respondUnavailable(res, error) {
   // The AI service said the session is gone (expired after 2 idle minutes).
@@ -18,15 +18,24 @@ function respondUnavailable(res, error) {
   }
   // e.g. letters chosen, but no letters model has been put in ai/models yet.
   if (error.upstreamStatus === 409) {
-    return res.status(409).json({ message: "That sign model isn't installed yet.", code: 'SIGN_MODEL_MISSING' });
+    return res.status(409).json({ message: "This sign language option isn't ready yet.", code: 'SIGN_MODEL_MISSING' });
   }
   return res.status(503).json(OFFLINE);
 }
 
 // Which models are installed: e.g. FSL words yes, FSL letters not yet.
+// Remembered for a minute — it only changes when the AI service restarts,
+// and every phone asks whenever sign language opens. Only good answers are
+// kept: while the service is down, every request asks it again.
+const MODELS_CACHE_MS = 60 * 1000;
+let modelsCache = null; // { data, at }
+
 const listModels = async (req, res, next) => {
   try {
-    res.json(await callAi('/sign/models', { timeoutMs: 4000 }));
+    if (modelsCache && Date.now() - modelsCache.at < MODELS_CACHE_MS) return res.json(modelsCache.data);
+    const data = await callAi('/sign/models', { timeoutMs: 4000 });
+    modelsCache = { data, at: Date.now() };
+    res.json(data);
   } catch (error) {
     if (error instanceof AiUnavailable) return respondUnavailable(res, error);
     next(error);

@@ -13,7 +13,7 @@ from collections import deque
 
 import numpy as np
 
-from .features import IDX_LSHOULDER, IDX_RSHOULDER, OFF_LHAND, OFF_RHAND
+from .features import IDX_LSHOULDER, IDX_RSHOULDER, N_HAND, OFF_LHAND, OFF_RHAND
 
 SIGN_ZONE = 1.1         # signing line = shoulders + 1.1 shoulder widths (about waist)
 AUTO_START_FRAMES = 3   # a hand above the line this many frames in a row = sign starts
@@ -130,6 +130,70 @@ class AutoSegmenter:
                 clips.append(np.stack(frames))
         self.pending = []
         return clips
+
+
+HOLD_SECONDS = 0.4      # a handshape held this long (s) = one letter
+HOLD_SHAPE = 0.12       # how much the handshape may change and still be "held" (hand sizes)
+HOLD_MOVE = 0.25        # how far the wrist may drift and still be "held" (hand sizes)
+
+
+class HoldSegmenter:
+    """Fingerspelling: a letter is a handshape held still for HOLD_SECONDS.
+
+    For "hand-21" letters models (meta.json "segmentation": "hold"). Each
+    hold is read once; the next letter needs the hand to change shape or
+    move. A double letter ("LL") = the hand moves a little and holds again.
+    The numbers above are starting points — tune them while testing.
+    """
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.held = []          # (time, frame) of the current still stretch
+        self.t_hold = None
+        self.ref = None         # (shape, wrist, size) the stretch started with
+        self.read = False       # this hold was already read
+
+    @property
+    def phase(self):
+        return "SIGN" if self.held and not self.read else "WAIT"
+
+    @staticmethod
+    def _hand(packed):
+        for offset in (OFF_RHAND, OFF_LHAND):
+            hand = packed[offset:offset + N_HAND]
+            if hand[:, 2].all():
+                return hand[:, :2]
+        return None
+
+    def bridge_gap(self, t):
+        """A new video piece starts: nothing carries over but the last hold."""
+
+    def update(self, t, packed, aspect, fixed_seconds):
+        """Feed one frame. Returns the frames of a held letter, else None."""
+        hand = self._hand(packed)
+        if hand is None:
+            self.reset()        # hand gone: whatever comes next is a new letter
+            return None
+        relative = hand - hand[0]
+        size = max(float(np.max(np.linalg.norm(relative, axis=1))), 1e-6)
+        shape, wrist = relative / size, hand[0]
+        if self.ref is not None:
+            ref_shape, ref_wrist, ref_size = self.ref
+            changed = float(np.max(np.linalg.norm(shape - ref_shape, axis=1)))
+            moved = float(np.linalg.norm(wrist - ref_wrist)) / ref_size
+        if self.ref is None or changed > HOLD_SHAPE or moved > HOLD_MOVE:
+            self.held, self.t_hold, self.ref, self.read = [(t, packed)], t, (shape, wrist, size), False
+            return None
+        self.held.append((t, packed))
+        if not self.read and t - self.t_hold >= HOLD_SECONDS:
+            self.read = True
+            return np.stack([frame for _, frame in self.held])
+        return None
+
+    def flush(self):
+        return []
 
 
 def judge(res, min_conf):

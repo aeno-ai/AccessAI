@@ -1,6 +1,6 @@
 // Shapes returned by the backend's /api/admin/* endpoints.
 
-export type AdminRole = 'super_admin' | 'admin' | 'viewer';
+export type AdminRole = 'super_admin' | 'admin';
 
 export type Permission = 'users:read' | 'users:update' | 'admins:read' | 'admins:manage';
 

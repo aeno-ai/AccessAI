@@ -1,0 +1,11 @@
+{
+  "name": "accessai-reports",
+  "private": true,
+  "description": "Builds docs/AccessAI-How-It-Works.docx and docs/AccessAI-Defense-Notes.docx",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "docx": "9.10.0"
+  }
+}

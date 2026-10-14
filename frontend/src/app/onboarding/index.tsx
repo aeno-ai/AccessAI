@@ -19,10 +19,8 @@ export default function OnboardingSplashScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.logoCard}>
-        <AppLogo size={112} />
-      </View>
-      <Text style={styles.appName}>PDAccessAI</Text>
+      <AppLogo size={112} markOnly />
+      <Text style={styles.appName}>AccessAI</Text>
       <Text style={styles.tagline}>AI-powered accessibility{'\n'}for everyone.</Text>
       <ActivityIndicator color={colors.onPrimary} style={styles.loader} />
     </View>
@@ -37,12 +35,6 @@ const makeStyles = (t: AppTheme) =>
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 32,
-    },
-    // The logo artwork is drawn for a white background, whatever the theme.
-    logoCard: {
-      backgroundColor: '#FFFFFF',
-      borderRadius: 28,
-      padding: 16,
     },
     appName: {
       fontSize: t.font(28),

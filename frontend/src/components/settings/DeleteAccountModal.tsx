@@ -3,10 +3,9 @@ import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } fr
 import { Ionicons } from '@expo/vector-icons';
 import { AuthInput } from '@/components/auth/AuthInput';
 import { apiFetch } from '@/api/apiClient';
-import { RESEND_CODE_SECONDS } from '@/constants/auth';
 import { DELETION_GRACE_DAYS } from '@/constants/legal';
 import { Spacing } from '@/constants/theme';
-import { useCountdown } from '@/hooks/use-countdown';
+import { useCodeCooldown } from '@/hooks/use-code-cooldown';
 import { formatLongDate } from '@/utils/dates';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 
@@ -50,7 +49,8 @@ function DeleteSheet({ onCancel, onScheduled }: Omit<DeleteAccountModalProps, 'v
   const [code, setCode] = useState('');
   const [codeSentTo, setCodeSentTo] = useState('');
   const [sendingCode, setSendingCode] = useState(false);
-  const [resendIn, restartResendTimer] = useCountdown();
+  const cooldown = useCodeCooldown('me', 'delete_account');
+  const resendIn = cooldown.secondsLeft;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   // For the explanation only; the backend sets the real date. Worked out
@@ -75,11 +75,12 @@ function DeleteSheet({ onCancel, onScheduled }: Omit<DeleteAccountModalProps, 'v
     setError('');
     setSendingCode(true);
     try {
-      const data = await apiFetch<{ email: string }>('/auth/me/deletion-code', { method: 'POST' });
+      const data = await apiFetch<{ email: string; retryAfter?: number }>('/auth/me/deletion-code', { method: 'POST' });
       setCodeSentTo(data.email);
       setCode('');
-      restartResendTimer(RESEND_CODE_SECONDS);
+      cooldown.start(data.retryAfter ?? 60);
     } catch (e: unknown) {
+      cooldown.fromError(e);
       setError(e instanceof Error ? e.message : 'Could not send a code');
     } finally {
       setSendingCode(false);
@@ -167,7 +168,13 @@ function DeleteSheet({ onCancel, onScheduled }: Omit<DeleteAccountModalProps, 'v
                 <ActivityIndicator color={colors.primary} />
               ) : (
                 <Text style={styles.codeButtonText}>
-                  {!codeSentTo ? 'Email me a code' : resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
+                  {cooldown.daily
+                    ? 'Try again tomorrow'
+                    : !codeSentTo && resendIn === 0
+                      ? 'Email me a code'
+                      : resendIn > 0
+                        ? `Resend code in ${resendIn}s`
+                        : 'Resend code'}
                 </Text>
               )}
             </TouchableOpacity>

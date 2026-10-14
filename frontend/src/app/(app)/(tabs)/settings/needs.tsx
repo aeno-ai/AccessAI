@@ -20,9 +20,15 @@ export default function NeedsScreen() {
       return;
     }
     const { title } = PROFILE_LABELS[profile];
+    // Someone leaving Blind / low vision may rely on Accel to get around:
+    // say plainly what goes away.
+    const turnsOff =
+      prefs.profile === 'blind-low-vision'
+        ? 'This turns off Accel, the voice assistant, and the large high-contrast text. '
+        : '';
     Alert.alert(
       'Apply suggested settings?',
-      `This sets text size, colors and conversation settings for "${title}". Quick replies you've edited are kept. You can change anything afterwards.`,
+      `${turnsOff}This sets text size, colors and conversation settings for "${title}". Your own quick replies are kept. You can change anything afterwards.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {

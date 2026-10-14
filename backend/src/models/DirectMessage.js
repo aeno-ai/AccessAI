@@ -27,5 +27,8 @@ const directMessageSchema = new mongoose.Schema(
 
 directMessageSchema.index({ senderId: 1, clientId: 1 }, { unique: true });
 directMessageSchema.index({ friendshipId: 1, createdAt: 1 });
+// Unread count in a chat: the friend's messages after I last read it. The
+// index alone answers it (a "covered" count, no documents read).
+directMessageSchema.index({ friendshipId: 1, senderId: 1, createdAt: 1 });
 
 module.exports = mongoose.model('DirectMessage', directMessageSchema);

@@ -24,6 +24,29 @@ export function formatLongDate(date: Date): string {
   return `${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }
 
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** e.g. "3:10 PM", by hand for the same reason. */
+export function formatClock(date: Date): string {
+  const hours = date.getHours();
+  return `${hours % 12 || 12}:${String(date.getMinutes()).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
+}
+
+/**
+ * When something happened this past week, the way a person says it:
+ * "today, 3:10 PM", "yesterday, 3:10 PM", "Monday, 3:10 PM" — older than
+ * that, "October 10, 2026".
+ */
+export function whenText(ms: number, now: number = Date.now()): string {
+  const date = new Date(ms);
+  const today = new Date(now);
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  if (ms >= startOfToday) return `today, ${formatClock(date)}`;
+  if (ms >= startOfToday - DAY_MS) return `yesterday, ${formatClock(date)}`;
+  if (ms >= startOfToday - 6 * DAY_MS) return `${WEEKDAYS[date.getDay()]}, ${formatClock(date)}`;
+  return formatLongDate(date);
+}
+
 /**
  * Whole days left until `date`, rounded up, so "3 hours from now" counts
  * as 1 day rather than 0. Never negative.

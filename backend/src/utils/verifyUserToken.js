@@ -12,7 +12,7 @@ const User = require('../models/Users');
 // A valid signature only proves we issued the token — not that the account
 // is still allowed in. Checking the account too means an admin deactivating
 // a user takes effect on that user's very next request, not whenever their
-// 7-day token happens to expire. An account waiting to be deleted is treated
+// 30-day token happens to expire. An account waiting to be deleted is treated
 // the same way, so asking for deletion signs the user out on every device.
 // (`null` also matches the field missing.) Tokens issued before the password
 // was last reset are refused too, so "Forgot password" signs out whoever

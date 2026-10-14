@@ -9,13 +9,16 @@ async function migrate(db: SQLiteDatabase) {
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
 
+    -- In-person conversations. account_id = the account that made it: a
+    -- phone shared by two people shows each only their own (conversations.ts).
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY NOT NULL,
       title TEXT NOT NULL,
       mode TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      synced_at INTEGER
+      synced_at INTEGER,
+      account_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -32,7 +35,8 @@ async function migrate(db: SQLiteDatabase) {
     -- sent on the next sync (see sync.ts).
     CREATE TABLE IF NOT EXISTS pending_deletions (
       conversation_id TEXT PRIMARY KEY NOT NULL,
-      deleted_at INTEGER NOT NULL
+      deleted_at INTEGER NOT NULL,
+      account_id TEXT
     );
 
     -- The signed-in account's friends, as last seen from the server, so the
@@ -79,13 +83,24 @@ async function migrate(db: SQLiteDatabase) {
       synced_until INTEGER NOT NULL
     );
   `);
+
+  // Phones that had these tables before conversations were kept per
+  // account (HANDOFF §20): add the column. Their rows have no account yet;
+  // the next account to sign in adopts them (adoptUnowned in conversations.ts).
+  for (const table of ['conversations', 'pending_deletions']) {
+    const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
+    if (!columns.some((column) => column.name === 'account_id')) {
+      await db.execAsync(`ALTER TABLE ${table} ADD COLUMN account_id TEXT`);
+    }
+  }
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_conversations_account ON conversations (account_id, updated_at);');
 }
 
 /**
  * Opens (or returns the already-open) local SQLite database, running the
  * table-creation migration on first open. This is the on-device store behind
- * offline-first conversation history — everything here is local to the
- * device; see `sync.ts` for the (currently stubbed) path to the backend.
+ * offline-first conversation history and friends' chats — everything here
+ * is local to the device; `sync.ts` backs conversations up to the server.
  */
 export async function getDatabase(): Promise<SQLiteDatabase> {
   if (!dbPromise) {

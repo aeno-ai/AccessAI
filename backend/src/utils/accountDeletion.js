@@ -5,6 +5,7 @@ const EmergencyContact = require('../models/EmergencyContact');
 const SOSEvent = require('../models/SOSEvent');
 const Friendship = require('../models/Friendship');
 const DirectMessage = require('../models/DirectMessage');
+const LearnCompletion = require('../models/LearnCompletion');
 
 // Permanently erases a user and everything that belongs to them. The user
 // document goes last: if any step fails part-way, the account (and its
@@ -27,6 +28,7 @@ async function purgeUser(userId) {
   const friendshipIds = await Friendship.find({ $or: [{ requester: userId }, { recipient: userId }] }).distinct('_id');
   await DirectMessage.deleteMany({ $or: [{ friendshipId: { $in: friendshipIds } }, { senderId: userId }] });
   await Friendship.deleteMany({ _id: { $in: friendshipIds } });
+  await LearnCompletion.deleteMany({ userId });
   await User.deleteOne({ _id: userId });
 }
 

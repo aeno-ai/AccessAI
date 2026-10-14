@@ -7,7 +7,8 @@ has never seen and its answers become nonsense.
 
     frame -> MediaPipe Holistic -> 69 points (x, y, present)
     32 evenly spaced frames -> centre on the shoulders, scale by shoulder
-    width -> (32, 207) -> model
+    width -> (32, 207) -> extra numbers the model was trained with, if any
+    (make_features, from its features.json) -> model
 """
 import sys
 import warnings
@@ -82,6 +83,33 @@ def normalize(X):
     xy = (xy - centre) / scale
     xy = xy * present
     return np.concatenate([xy, present], axis=-1).astype(np.float32)
+
+
+def make_features(b, hand=False, velocity=False):
+    """(B,T,69,3) normalized clips -> (B,T,FEAT). Identical to the training notebook
+    (and AccessAI-tester/tester.py). Which parts a model needs is in its features.json;
+    a model without one (like FSL-105) reads the base 207 only.
+    Order: base 207 | left-hand shape 42 | right-hand shape 42 | velocity 138."""
+    B, T = b.shape[:2]
+    parts = [b.reshape(B, T, -1)]
+    if hand:
+        for off in (OFF_LHAND, OFF_RHAND):
+            h = b[:, :, off:off + 21, :2]
+            pres = b[:, :, off:off + 1, 2:3]
+            palm = np.linalg.norm(h[:, :, 9] - h[:, :, 0], axis=-1)[..., None, None]
+            rel = (h - h[:, :, :1]) / np.maximum(palm, 1e-3) * pres
+            parts.append(rel.reshape(B, T, -1))
+    if velocity:
+        xy, p = b[..., :2], b[..., 2:3]
+        v = np.zeros_like(xy)
+        v[:, 1:] = (xy[:, 1:] - xy[:, :-1]) * p[:, 1:] * p[:, :-1]
+        parts.append(v.reshape(B, T, -1))
+    return np.concatenate(parts, -1).astype(np.float32)
+
+
+def feature_width(hand=False, velocity=False):
+    """How many numbers per frame make_features gives (207, 291, 345 or 429)."""
+    return make_features(np.zeros((1, T_FRAMES, N_POINTS, 3), np.float32), hand, velocity).shape[-1]
 
 
 def new_holistic():

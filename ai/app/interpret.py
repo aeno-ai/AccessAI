@@ -23,6 +23,7 @@ Guardrails — the AI can suggest, but it can never do anything by itself:
     no?" before acting.
   * Nothing said is stored or logged (unless AI_DEBUG=1 on your own laptop).
 """
+import asyncio
 import re
 import time
 
@@ -98,7 +99,9 @@ async def interpret(text, catalog, index, screen=None):
         return {"intent": "none", "slots": {}, "confidence": 0.0, "source": "none"}
 
     [embedding] = await ollama.embed([text])
-    candidates = best_per_intent(index.nearest(embedding, config.TOP_K))
+    # Chroma's search is ordinary blocking code: run it on a worker thread so
+    # other requests (sign language) keep moving meanwhile.
+    candidates = best_per_intent(await asyncio.to_thread(index.nearest, embedding, config.TOP_K))
     timings = {"vectorMs": round((time.perf_counter() - started) * 1000)}
     debug = {"candidates": [{"intent": i, "score": round(s, 3), "nearest": e} for i, s, e in candidates[:5]]}
 

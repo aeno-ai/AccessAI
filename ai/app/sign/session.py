@@ -15,15 +15,20 @@ import time
 import numpy as np
 
 from .features import IDX_LSHOULDER, IDX_RSHOULDER, OFF_LHAND, OFF_POSE, new_holistic, pack
-from .segmenter import AutoSegmenter, judge
+from .segmenter import AutoSegmenter, HoldSegmenter, judge
 
 IDLE_SECONDS = 120          # a session nobody sends to for 2 minutes is closed
 MAX_SESSIONS = 4            # MediaPipe is heavy; a laptop handles a few at once
+EVICT_IDLE_SECONDS = 30     # when full, only a session quiet this long may be taken over
 MAX_FPS = float(os.environ.get("SIGN_MAX_FPS", "30"))  # lower (e.g. 15) on a slow computer
 
 
 class SessionGone(Exception):
     """No such session (expired, or someone else's)."""
+
+
+class SessionsBusy(Exception):
+    """Every slot is taken by someone who is still signing."""
 
 
 class SignSession:
@@ -34,7 +39,9 @@ class SignSession:
         self.min_confidence = min_confidence
         self.flip = flip
         self.holistic = new_holistic()
-        self.segmenter = AutoSegmenter()
+        # Words: a sign = hands up then down (AUTO). Letters from a hand-21
+        # model: a letter = the hand held still (meta.json "segmentation").
+        self.segmenter = HoldSegmenter() if model.segmentation == "hold" else AutoSegmenter()
         self.lock = threading.Lock()     # pieces are read one at a time, in order
         self.last_used = time.monotonic()
 
@@ -45,7 +52,11 @@ class SignSession:
             pass
 
     def _event_for(self, clip):
-        res = self.model.predict(clip)
+        try:
+            res = self.model.predict(clip)
+        except Exception as error:  # noqa: BLE001 — a broken model must not end the session
+            print(f"[ai] sign {self.model.language}/{self.model.unit} prediction failed: {error}", flush=True)
+            return {"type": "hint", "message": "Sign reading isn't working right now. Please try again later."}
         verdict = judge(res, self.min_confidence)
         if verdict == "error":
             return {"type": "hint", "message": res["error"]}
@@ -145,7 +156,11 @@ class SessionStore:
                 if session.owner == owner:
                     self.sessions.pop(session_id).close()
             if len(self.sessions) >= MAX_SESSIONS:
+                # Full: take over the quietest session only if it has been
+                # idle a while — never cut off someone mid-sentence.
                 oldest = min(self.sessions.values(), key=lambda s: s.last_used)
+                if time.monotonic() - oldest.last_used <= EVICT_IDLE_SECONDS:
+                    raise SessionsBusy()
                 self.sessions.pop(oldest.id).close()
             session = SignSession(owner, model, min_confidence, flip)
             self.sessions[session.id] = session

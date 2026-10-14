@@ -1,17 +1,27 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io, type Socket } from 'socket.io-client';
 import { apiFetch, apiUrl } from '@/api/apiClient';
 import { block, unblock } from '@/audio/recognizer';
 import { SosAlertModal } from '@/components/sos/SosAlertModal';
-import { backfill, flushOutbox, saveServerMessage, type ServerMessage } from '@/db/directMessages';
+import {
+  backfill,
+  flushOutbox,
+  markChatRead,
+  saveServerMessage,
+  syncedUntilByFriend,
+  type ServerMessage,
+} from '@/db/directMessages';
 import { listCachedFriends, replaceCachedFriends, type Friend } from '@/db/friends';
 import { useAlerts } from '@/hooks/use-alerts';
+import { useAfterFirstScreen } from '@/hooks/use-after-first-screen';
 import { useBootstrap } from '@/hooks/use-bootstrap';
 import { EventHub } from '@/realtime/events';
 import { cacheFriendSos, loadCachedFriendSos, markShown, wasShown } from '@/realtime/sosCache';
 import { fetchActiveSos, respondToSos, type FriendSos, type MySos, type SosAnswer } from '@/utils/sos';
 import { getToken } from '@/utils/tokenStorage';
+import { isStale, keepIfSame } from '@/utils/cache';
 
 export type FriendRequest = {
   id: string;
@@ -30,6 +40,15 @@ type SosEnded = 'safe' | 'expired';
 // (it stays on the Home card until it ends).
 const MISSED_ALERT_WINDOW_MS = 6 * 60 * 60 * 1000;
 
+// A weak signal can drop and restore the connection every few seconds; each
+// time would re-ask for everything. Catching up runs at most this often (a
+// reconnect inside the gap still catches up once it's over).
+const CATCH_UP_GAP_MS = 10 * 1000;
+
+// Your friend code never changes: asked for once, then kept on the phone
+// (per account), so it's known offline too.
+const friendCodeKey = (userId: string) => `friendCode:v1:${userId}`;
+
 type LiveEvents = {
   'dm:new': { friendId: string; message: ServerMessage };
   'dm:read': { friendId: string; readAt: number };
@@ -44,7 +63,10 @@ type FriendsContextValue = {
   /** Your own friend code, once known (needs the internet the first time). */
   friendCode: string | null;
   /** Reloads friends and requests from AccessAI (keeps the saved list if offline). */
+  /** Asks the server now (after a change, or pull-to-refresh). */
   refresh: () => Promise<Friend[]>;
+  /** Asks the server only if the last answer is older than `maxAgeMs` (default 30 s) — for opening a screen. */
+  refreshIfStale: (maxAgeMs?: number) => Promise<Friend[]>;
   /** Live chat events for the open chat screen. Returns an unsubscribe function. */
   onLive: EventHub<LiveEvents>['on'];
   /**
@@ -52,6 +74,8 @@ type FriendsContextValue = {
    * (they're still read aloud / announced, per the user's settings).
    */
   setActiveChat: (friendId: string | null) => void;
+  /** A chat was read (e.g. aloud by Accel): no longer unread here, and the friend sees "Seen" when online. */
+  markRead: (friendId: string) => Promise<void>;
   /** Friends' SOS alerts that are still going (newest location included). Saved for offline. */
   friendSos: FriendSos[];
   /** The user's own SOS that's still going, with who answered — or null. */
@@ -82,7 +106,9 @@ const timeOf = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour
  * closed.
  */
 export function FriendsProvider({ children }: { children: ReactNode }) {
-  const { isLoggedIn } = useBootstrap();
+  const { isLoggedIn, userId } = useBootstrap();
+  // The live connection starts a moment after the first screen (see the hook).
+  const live = useAfterFirstScreen(isLoggedIn, userId);
   const { notify } = useAlerts();
   const [connected, setConnected] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -104,25 +130,46 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     notifyRef.current = notify;
   });
 
+  // When the server last answered, and what the phone's copy holds — so the
+  // same list isn't written to the phone or put on screen again (utils/cache.ts).
+  const fetchedAt = useRef<number | null>(null);
+  const cachedJson = useRef<string | null>(null);
+
+  const friendCodeRef = useRef<string | null>(null);
+
   const refresh = useCallback(async (): Promise<Friend[]> => {
     try {
       const [list, pending, me] = await Promise.all([
         apiFetch<Friend[]>('/friends'),
         apiFetch<FriendsContextValue['requests']>('/friends/requests'),
-        apiFetch<{ friendCode: string }>('/friends/me'),
+        friendCodeRef.current ? null : apiFetch<{ friendCode: string }>('/friends/me'),
       ]);
-      await replaceCachedFriends(list);
-      setFriends(list);
-      setRequests(pending);
-      setFriendCode(me.friendCode);
+      fetchedAt.current = Date.now();
+      const json = JSON.stringify(list);
+      if (json !== cachedJson.current) {
+        await replaceCachedFriends(list);
+        cachedJson.current = json;
+      }
+      setFriends((current) => keepIfSame(current, list));
+      setRequests((current) => keepIfSame(current, pending));
+      if (me?.friendCode) {
+        friendCodeRef.current = me.friendCode;
+        setFriendCode(me.friendCode);
+        if (userId) void AsyncStorage.setItem(friendCodeKey(userId), me.friendCode).catch(() => undefined);
+      }
       return list;
     } catch {
       // Offline — the friends saved on the phone are still shown.
       const cached = await listCachedFriends();
-      setFriends(cached);
+      setFriends((current) => keepIfSame(current, cached));
       return cached;
     }
-  }, []);
+  }, [userId]);
+
+  const refreshIfStale = useCallback(
+    (maxAgeMs = 30 * 1000) => (isStale(fetchedAt.current, maxAgeMs) ? refresh() : Promise.resolve(friendsRef.current)),
+    [refresh],
+  );
 
   // Friends' SOS list: always saved, so the Home card works offline.
   const updateFriendSos = useCallback((change: (current: FriendSos[]) => FriendSos[]) => {
@@ -162,12 +209,29 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     }
   }, [updateFriendSos, showAlertFor]);
 
-  // Sends what was written offline, then catches up every chat.
+  const lastCatchUp = useRef(0);
+  const catchUpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const catchUpRef = useRef<() => Promise<void>>(async () => undefined);
+
+  // Sends what was written offline, then catches up the chats that have
+  // something new — those whose last message (in the fresh friend list) is
+  // newer than what this phone has fetched.
   const catchUp = useCallback(async () => {
+    const wait = lastCatchUp.current + CATCH_UP_GAP_MS - Date.now();
+    if (wait > 0) {
+      catchUpTimer.current ??= setTimeout(() => {
+        catchUpTimer.current = null;
+        void catchUpRef.current();
+      }, wait);
+      return;
+    }
+    lastCatchUp.current = Date.now();
     const list = await refresh();
     await loadSos();
     await flushOutbox();
+    const fetchedUntil = await syncedUntilByFriend();
     for (const friend of list) {
+      if ((friend.lastMessage?.createdAt ?? 0) <= (fetchedUntil.get(friend.userId) ?? 0)) continue;
       try {
         await backfill(friend.userId);
       } catch {
@@ -176,14 +240,33 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     }
   }, [refresh, loadSos]);
 
-  // Lives inside the signed-in part of the app, so signing out unmounts it
-  // (and its state) entirely; the check is only belt and braces.
   useEffect(() => {
-    if (!isLoggedIn) {
+    catchUpRef.current = catchUp;
+  }, [catchUp]);
+
+  // What's saved on the phone shows at once (works offline).
+  useEffect(() => {
+    if (!isLoggedIn || !userId) {
       return;
     }
     void listCachedFriends().then(setFriends);
     void loadCachedFriendSos().then(setFriendSos);
+    void AsyncStorage.getItem(friendCodeKey(userId))
+      .then((code) => {
+        if (code && !friendCodeRef.current) {
+          friendCodeRef.current = code;
+          setFriendCode(code);
+        }
+      })
+      .catch(() => undefined);
+  }, [isLoggedIn, userId]);
+
+  // Lives inside the signed-in part of the app, so signing out unmounts it
+  // (and its state) entirely; the check is only belt and braces.
+  useEffect(() => {
+    if (!live) {
+      return;
+    }
 
     const socket: Socket = io(SOCKET_URL, {
       // A function, so a reconnection always uses the current login token.
@@ -209,7 +292,11 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     socket.on('friends:changed', () => void refresh());
 
     socket.on('presence', ({ userId, online }: { userId: string; online: boolean }) => {
-      setFriends((current) => current.map((f) => (f.userId === userId ? { ...f, online } : f)));
+      setFriends((current) =>
+        current.some((f) => f.userId === userId && f.online !== online)
+          ? current.map((f) => (f.userId === userId ? { ...f, online } : f))
+          : current,
+      );
     });
 
     socket.on('dm:new', async (payload: LiveEvents['dm:new']) => {
@@ -255,13 +342,18 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
       });
     });
 
-    // The sender's phone shared a newer position.
-    socket.on('sos:location', ({ eventId, location }: { eventId: string; location: FriendSos['location'] }) => {
-      updateFriendSos((current) => current.map((s) => (s.eventId === eventId ? { ...s, location } : s)));
-      setAlert((current) =>
-        current && current.sos.eventId === eventId ? { ...current, sos: { ...current.sos, location } } : current,
-      );
-    });
+    // The sender's phone shared a newer position — and, once looked up,
+    // the readable place ("Near Rizal Ave, Manila").
+    socket.on(
+      'sos:location',
+      ({ eventId, location, place }: { eventId: string; location: FriendSos['location']; place?: string | null }) => {
+        const change = (s: FriendSos): FriendSos => ({ ...s, location, place: place ?? s.place });
+        updateFriendSos((current) => current.map((s) => (s.eventId === eventId ? change(s) : s)));
+        setAlert((current) =>
+          current && current.sos.eventId === eventId ? { ...current, sos: change(current.sos) } : current,
+        );
+      },
+    );
 
     socket.on(
       'sos:resolved',
@@ -300,8 +392,10 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
       socket.removeAllListeners();
       socket.disconnect();
       setConnected(false);
+      if (catchUpTimer.current) clearTimeout(catchUpTimer.current);
+      catchUpTimer.current = null;
     };
-  }, [isLoggedIn, refresh, catchUp, hub, updateFriendSos, showAlertFor]);
+  }, [live, refresh, catchUp, hub, updateFriendSos, showAlertFor]);
 
   // While a friend's SOS is on screen, "Hey Accel" stays quiet.
   useEffect(() => {
@@ -314,6 +408,11 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     if (friendId) {
       setFriends((current) => current.map((f) => (f.userId === friendId ? { ...f, unread: 0 } : f)));
     }
+  }, []);
+
+  const markRead = useCallback(async (friendId: string) => {
+    setFriends((current) => current.map((f) => (f.userId === friendId && f.unread ? { ...f, unread: 0 } : f)));
+    await markChatRead(friendId).catch(() => undefined);
   }, []);
 
   const onLive = useCallback<FriendsContextValue['onLive']>((event, handler) => hub.on(event, handler), [hub]);
@@ -341,15 +440,17 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
       requests,
       friendCode,
       refresh,
+      refreshIfStale,
       onLive,
       setActiveChat,
+      markRead,
       friendSos,
       mySos,
       setMySos,
       respondSos,
       showSos,
     }),
-    [connected, friends, requests, friendCode, refresh, onLive, setActiveChat, friendSos, mySos, respondSos, showSos],
+    [connected, friends, requests, friendCode, refresh, refreshIfStale, onLive, setActiveChat, markRead, friendSos, mySos, respondSos, showSos],
   );
 
   return (

@@ -1,11 +1,23 @@
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, type Href } from 'expo-router';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { RadioGroup } from '@/components/ui/RadioGroup';
 import { SectionHeader, SettingRow } from '@/components/ui/SettingRow';
 import { ToggleRow } from '@/components/ui/ToggleRow';
-import { downloadEnglishForWakeWord, useWakeStatus, wakeWordSupported, type WakeStatus } from '@/accel/wakeWord';
+import {
+  downloadEnglishForWakeWord,
+  recheckWakeWord,
+  useWakeEngine,
+  useWakeHeard,
+  useWakeOfflineMissing,
+  useWakeStatus,
+  useWakeUnsupportedReason,
+  wakeWordSupported,
+  type WakeEngine,
+  type WakeStatus,
+  type WakeUnsupportedReason,
+} from '@/accel/wakeWord';
 import { useAccel } from '@/accel/AccelProvider';
 import { Spacing } from '@/constants/theme';
 import { usePickedVoices } from '@/hooks/use-app-voice';
@@ -22,20 +34,40 @@ const VOICE_OPTIONS: { value: AccelVoice; label: string; description?: string }[
   { value: 'app', label: 'Same as the app', description: 'Settings → Conversation & speech → Voice' },
 ];
 
-const WAKE_TEXT: Record<WakeStatus, string> = {
+const WAKE_TEXT: Record<Exclude<WakeStatus, 'listening' | 'unsupported'>, string> = {
   off: 'Off.',
-  listening: 'Listening for "Hey Accel" now.',
-  paused: 'Paused — it waits while something else uses the mic, while AccessAI is talking, or after 10 minutes without a touch.',
-  unsupported: '"Hey Accel" needs the AccessAI app build (not Expo Go) and Android 13 or newer, or an iPhone.',
-  'needs-download': 'English speech must be on this phone so "Hey Accel" can listen offline. Download it below (once).',
-  'needs-permission': 'AccessAI needs the microphone. Tap "Allow the microphone" below.',
+  starting: 'Getting ready…',
+  paused: 'Waiting while Accel or another microphone is in use.',
+  'needs-download': 'English needs to be downloaded once. Tap "Get offline English".',
+  'needs-permission': 'AccessAI needs the microphone. Tap "Allow the microphone".',
+  'needs-internet': 'Waiting for the internet. Connect to Wi-Fi or mobile data.',
 };
+
+const UNSUPPORTED_TEXT: Record<WakeUnsupportedReason, string> = {
+  'no-app': '"Hey Accel" needs the full AccessAI app. Use the Accel button instead.',
+  'no-recognizer': 'This phone has no voice typing. Install or update the Google app.',
+};
+
+/** What "Hey Accel" is doing, in plain words. */
+function wakeText(status: WakeStatus, engine: WakeEngine | null, reason: WakeUnsupportedReason | null): string {
+  if (status === 'listening') {
+    return engine === 'online'
+      ? 'Listening. Say "Hey Accel" any time. Uses the internet on this phone.'
+      : 'Listening. Say "Hey Accel" any time.';
+  }
+  if (status === 'unsupported') return UNSUPPORTED_TEXT[reason ?? 'no-app'];
+  return WAKE_TEXT[status];
+}
 
 /** Accel, the voice assistant: on/off, "Hey Accel", understanding, and voice. */
 export default function AccelSettingsScreen() {
   const { prefs, setPref } = usePreferences();
   const { listen } = useAccel();
   const wake = useWakeStatus();
+  const engine = useWakeEngine();
+  const reason = useWakeUnsupportedReason();
+  const lastHeard = useWakeHeard();
+  const offlineMissing = useWakeOfflineMissing();
   const voices = usePickedVoices(prefs.accelVoice === 'app' ? prefs.appVoice : prefs.accelVoice);
   const styles = useThemedStyles(makeStyles);
   const [note, setNote] = useState('');
@@ -48,10 +80,14 @@ export default function AccelSettingsScreen() {
 
   const allowMic = async () => {
     const result = await speechModule?.requestPermissionsAsync();
-    setNote(result?.granted ? 'Thanks — the microphone is allowed.' : 'Allow the microphone for AccessAI in your phone settings.');
-    // Turning it off and on makes "Hey Accel" check again.
-    setPref('accelWakeWord', false);
-    setTimeout(() => setPref('accelWakeWord', true), 300);
+    if (result?.granted) {
+      setNote('Thanks. The microphone is allowed.');
+      recheckWakeWord();
+    } else {
+      // Refused before: only the phone's Settings can allow it now.
+      setNote('Allow the microphone for AccessAI in your phone settings, then come back.');
+      void Linking.openSettings();
+    }
   };
 
   const download = async () => {
@@ -63,15 +99,15 @@ export default function AccelSettingsScreen() {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Text style={styles.note}>
-        Accel is a voice assistant for moving around AccessAI without seeing the screen. Say where to go or what to do;
-        Accel checks with you (yes or no) before doing it.
+        Accel is designed for people who are blind or have low vision. It lets you move around AccessAI by voice, without
+        seeing the screen. Say where to go or what to do; Accel checks with you (yes or no) before doing it.
         {prefs.profile === 'blind-low-vision' ? ' It was turned on because you chose Blind / low vision.' : ''}
       </Text>
 
       <View style={styles.card}>
         <ToggleRow
           label="Accel"
-          description="The Accel button on every screen, and Magic Tap on iPhone (two-finger double-tap with VoiceOver)."
+          description="Made for blind and low-vision users. Anyone can turn it on. Adds the Accel button to every screen, and Magic Tap on iPhone (two-finger double-tap with VoiceOver)."
           value={prefs.accelEnabled}
           onValueChange={(value) => {
             setPref('accelEnabled', value);
@@ -80,8 +116,8 @@ export default function AccelSettingsScreen() {
         />
         <ToggleRow
           divided
-          label='Listen for "Hey Accel"'
-          description="While AccessAI is open. Listens on the phone itself — no recording leaves it."
+          label='Always listening (say "Hey Accel")'
+          description="Listens any time AccessAI is open, even while it's talking. Uses more battery. Nothing you say is saved."
           value={prefs.accelWakeWord}
           disabled={!prefs.accelEnabled || !wakeWordSupported}
           onValueChange={(value) => setPref('accelWakeWord', value)}
@@ -89,18 +125,26 @@ export default function AccelSettingsScreen() {
         <ToggleRow
           divided
           label="Smarter understanding"
-          description="When online, AccessAI's AI helps understand commands the phone can't. Nothing you say is saved."
+          description="When you're online, Accel understands more ways of saying things. Nothing you say is saved."
           value={prefs.accelSmart}
           disabled={!prefs.accelEnabled}
           onValueChange={(value) => setPref('accelSmart', value)}
         />
       </View>
       {prefs.accelEnabled && prefs.accelWakeWord ? (
-        <Text style={styles.note} accessibilityLiveRegion="polite">
-          &quot;Hey Accel&quot;: {wakeWordSupported ? WAKE_TEXT[wake] : WAKE_TEXT.unsupported}
-        </Text>
+        <>
+          <Text style={styles.note} accessibilityLiveRegion="polite">
+            &quot;Hey Accel&quot;: {wakeWordSupported ? wakeText(wake, engine, reason) : UNSUPPORTED_TEXT['no-app']}
+          </Text>
+          {lastHeard && wake === 'listening' ? <Text style={styles.note}>Last heard: “{lastHeard}”</Text> : null}
+          {wake === 'needs-download' || wake === 'needs-internet' || offlineMissing ? (
+            <>
+              <Text style={styles.note}>Download offline English so &quot;Hey Accel&quot; also works without internet.</Text>
+              <PrimaryButton title="Get offline English" onPress={() => void download()} />
+            </>
+          ) : null}
+        </>
       ) : null}
-      {wake === 'needs-download' ? <PrimaryButton title="Download English speech" onPress={() => void download()} /> : null}
       {wake === 'needs-permission' ? <PrimaryButton title="Allow the microphone" onPress={() => void allowMic()} /> : null}
       {note ? <Text style={styles.note}>{note}</Text> : null}
 
@@ -130,7 +174,7 @@ export default function AccelSettingsScreen() {
           divided
           icon="mic-outline"
           title="Try Accel now"
-          description={speechToTextSupported ? 'Opens Accel and listens.' : 'Opens Accel — type a command (Expo Go has no speech-to-text).'}
+          description={speechToTextSupported ? 'Opens Accel and listens.' : 'Opens Accel. Type what you want it to do.'}
           onPress={listen}
         />
         <SettingRow

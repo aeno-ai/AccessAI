@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import {
+  Keyboard,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { AuthInput } from '@/components/auth/AuthInput';
 import { GoogleSignInButton, OrDivider } from '@/components/auth/GoogleSignInButton';
 import { PendingDeletionModal } from '@/components/auth/PendingDeletionModal';
@@ -18,6 +19,7 @@ import { MaxContentWidth } from '@/constants/theme';
 import { apiFetch, isApiError } from '@/api/apiClient';
 import { useBootstrap } from '@/hooks/use-bootstrap';
 import { useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
+import { startCodeCooldown } from '@/hooks/use-code-cooldown';
 
 type LoginResponse = {
   token: string;
@@ -27,10 +29,23 @@ export default function LoginScreen() {
   const styles = useThemedStyles(makeStyles);
 
   const { signIn } = useBootstrap();
-  const [email, setEmail] = useState('');
+  // Set when coming back from "Forgot password", so only the new password
+  // needs typing.
+  const params = useLocalSearchParams<{ email?: string }>();
+  const [email, setEmail] = useState(params.email ?? '');
   const [password, setPassword] = useState('');
+  // A new email handed over while this screen was already open (it stays
+  // mounted under "Forgot password"): show it, with the password cleared.
+  const [handedEmail, setHandedEmail] = useState(params.email);
+  if (params.email && params.email !== handedEmail) {
+    setHandedEmail(params.email);
+    setEmail(params.email);
+    setPassword('');
+  }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // The email or password was wrong: "Forgot password?" goes right under it.
+  const [wrongLogin, setWrongLogin] = useState(false);
   // Set when the password was right but the account is waiting to be
   // deleted — the backend sends no token then, only this date.
   const [pendingDeletion, setPendingDeletion] = useState<string | null>(null);
@@ -38,30 +53,36 @@ export default function LoginScreen() {
   const [restoreError, setRestoreError] = useState('');
 
   const handleLogin = async () => {
+    // So the screen doesn't jump under the finger as the keyboard closes.
+    Keyboard.dismiss();
     setError('');
+    setWrongLogin(false);
     setLoading(true);
     try {
       const data = await apiFetch<LoginResponse>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       });
+      // Stays "Logging in…" until the app moves on — clearing it here would
+      // flash the Login button back for a moment.
       await signIn(data.token);
     } catch (e: unknown) {
+      setLoading(false);
       if (isApiError(e) && e.body.code === 'ACCOUNT_PENDING_DELETION') {
         setRestoreError('');
         setPendingDeletion(String(e.body.deletionScheduledFor));
       } else if (isApiError(e) && e.body.code === 'EMAIL_NOT_VERIFIED') {
         // Signed up but never entered the emailed code. The backend has just
         // sent a fresh one (unless it sent one in the last minute).
+        startCodeCooldown(email.trim(), 'verify_email', e.body.retryAfter, Number(e.body.retryAfter) > 60);
         router.push({
           pathname: '/verify-email',
           params: { email: email.trim(), codeSent: e.body.codeSent === false ? '0' : '1' },
         });
       } else {
+        setWrongLogin(isApiError(e) && e.status === 401);
         setError(e instanceof Error ? e.message : 'Login failed');
       }
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -101,7 +122,7 @@ export default function LoginScreen() {
           <View style={styles.header}>
             <AppLogo size={72} />
             <Text style={styles.title}>Welcome back</Text>
-            <Text style={styles.subtitle}>Log in to continue with PDAccessAI</Text>
+            <Text style={styles.subtitle}>Log in to continue with AccessAI</Text>
           </View>
           <AuthInput
             label="Email Address"
@@ -124,9 +145,23 @@ export default function LoginScreen() {
           >
             <Text style={styles.linkAccent}>Forgot password?</Text>
           </TouchableOpacity>
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {error ? (
+            <Text style={styles.errorText} accessibilityLiveRegion="polite">
+              {error}
+            </Text>
+          ) : null}
+          {wrongLogin ? (
+            <TouchableOpacity
+              onPress={() => router.push({ pathname: '/forgot-password', params: { email: email.trim() } })}
+              style={styles.errorLink}
+              accessibilityRole="button"
+            >
+              <Text style={styles.linkAccent}>Forgot password? Set a new one</Text>
+            </TouchableOpacity>
+          ) : null}
           <PrimaryButton
             title="Login"
+            loadingTitle="Logging in…"
             onPress={() => void handleLogin()}
             loading={loading}
             disabled={!email || !password}
@@ -187,6 +222,13 @@ const makeStyles = (t: AppTheme) =>
       color: t.colors.dangerText,
       textAlign: 'center',
       marginBottom: 12,
+    },
+    errorLink: {
+      alignSelf: 'center',
+      minHeight: 44,
+      justifyContent: 'center',
+      marginTop: -8,
+      marginBottom: 8,
     },
     linkWrap: {
       marginTop: 20,

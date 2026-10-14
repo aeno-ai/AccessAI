@@ -14,7 +14,7 @@ import { useFriends } from '@/realtime/FriendsProvider';
 import { announce } from '@/utils/a11y';
 
 // What the QR code holds. Anything ending in a code also works when scanned.
-const QR_PREFIX = 'PDACCESSAI-FRIEND:';
+const QR_PREFIX = 'ACCESSAI-FRIEND:';
 
 /** "abcd 2345", "ABCD2345" or a scanned QR → "ABCD-2345", or null. */
 function extractCode(text: string): string | null {
@@ -99,7 +99,7 @@ export default function AddFriendScreen() {
 
   const shareCode = () => {
     if (!friendCode) return;
-    void Share.share({ message: `Add me on PDAccessAI! My friend code is ${friendCode}` });
+    void Share.share({ message: `Add me on AccessAI! My friend code is ${friendCode}` });
   };
 
   return (

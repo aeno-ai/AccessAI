@@ -1,29 +1,40 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
+import { Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
+import { SignOptionsSheet } from '@/components/conversation/SignOptionsSheet';
+import { SIGN_LANGUAGE_NAMES, signChoiceLabel } from '@/components/sign/SignChoices';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { usePreferences, type SignLanguage, type SignUnit } from '@/hooks/use-preferences';
-import { fetchSignModels, useSignRecognition, type SignEvent, type SignModelInfo } from '@/hooks/use-sign-recognition';
+import { signReady, useSignModels, useSignRecognition, type SignEvent } from '@/hooks/use-sign-recognition';
 import { announce } from '@/utils/a11y';
 
 // After signing stops for this long, the words become a sentence.
 const SENTENCE_PAUSE_MS = 2500;
 
 type SignPanelProps = {
-  /** A recognized word, for the message box. */
-  onWord: (word: string) => void;
-  /** Take the last word back out. */
+  /** A recognized word (or letter, when reading letters), for the message box. */
+  onWord: (sign: string, unit: SignUnit) => void;
+  /** Take the last word (or letter) back out. */
   onUndoWord: () => void;
-  /** Signing paused after some words: time to turn them into a sentence. */
-  onPause: (language: SignLanguage) => void;
-  /** Words recognized since the last sentence (for the Undo button). */
+  /** Signing paused: words become a sentence; spelled letters end a word. */
+  onPause: (language: SignLanguage, unit: SignUnit) => void;
+  /** Signs recognized since the last pause (for the Undo button). */
   pendingWords: number;
 };
 
+// The camera's height: a share of the screen, within limits — Normal fits
+// above the message box; Large (the button on the camera) shows the signer
+// at about half the screen. Only the preview changes: the video sent for
+// reading is the same size either way.
+const cameraHeight = (screenHeight: number, large: boolean) =>
+  large
+    ? Math.round(Math.min(620, Math.max(360, screenHeight * 0.55)))
+    : Math.round(Math.min(340, Math.max(240, screenHeight * 0.34)));
+
 const PHASE_TEXT = {
   off: 'Starting the camera…',
-  starting: 'Connecting…',
+  starting: 'Getting ready…',
   WAIT: 'Watching — sign whenever you’re ready',
   SIGN: 'Signing…',
   TAIL: 'Reading the sign…',
@@ -31,8 +42,9 @@ const PHASE_TEXT = {
 } as const;
 
 /**
- * Sign language mode, inside the message box: the camera, the language and
- * unit choice, and what's being recognized. Each recognized word goes into
+ * Sign language mode, inside the message box: the camera, one button for
+ * the language and words/letters (opens SignOptionsSheet), and what's
+ * being recognized. Each recognized word goes into
  * the message box; when signing pauses, the AI turns the words into a
  * sentence there. The signer checks it and taps Send — the app never sends
  * by itself.
@@ -41,33 +53,30 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords }: SignPan
   const { prefs, setPref } = usePreferences();
   const { colors } = useAppTheme();
   const styles = useThemedStyles(makeStyles);
+  const { height: screenHeight } = useWindowDimensions();
+  const large = prefs.signCameraLarge;
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraReady, setCameraReady] = useState(false);
-  const [models, setModels] = useState<SignModelInfo[] | null>(null);
+  const models = useSignModels();
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [choices, setChoices] = useState<string[]>([]);
   const [hint, setHint] = useState('');
   const pauseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  useEffect(() => {
-    void fetchSignModels()
-      .then(setModels)
-      .catch(() => setModels([]));
-  }, []);
-
-  const lettersReady = models?.some((m) => m.language === prefs.signLanguage && m.unit === 'letters' && m.available) ?? false;
+  const lettersReady = signReady(models, prefs.signLanguage, 'letters');
   const unit: SignUnit = prefs.signUnit === 'letters' && !lettersReady ? 'words' : prefs.signUnit;
 
   const scheduleSentence = () => {
     clearTimeout(pauseTimer.current);
-    pauseTimer.current = setTimeout(() => onPause(prefs.signLanguage), SENTENCE_PAUSE_MS);
+    pauseTimer.current = setTimeout(() => onPause(prefs.signLanguage, unit), SENTENCE_PAUSE_MS);
   };
 
   const handle = (event: SignEvent) => {
     if (event.type === 'word') {
       setChoices([]);
       setHint('');
-      onWord(event.label);
+      onWord(event.label, unit);
       Vibration.vibrate(40);
       scheduleSentence();
     } else if (event.type === 'unsure') {
@@ -108,23 +117,9 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords }: SignPan
     );
   }
 
-  const chip = (label: string, selected: boolean, onPress: () => void, disabled = false, hintText?: string) => (
-    <Pressable
-      key={label}
-      onPress={onPress}
-      disabled={disabled}
-      style={[styles.chip, selected && styles.chipSelected, disabled && styles.chipDisabled]}
-      accessibilityRole="radio"
-      accessibilityState={{ checked: selected, disabled }}
-      accessibilityHint={hintText}
-    >
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
-    </Pressable>
-  );
-
   return (
     <View style={styles.panel}>
-      <View style={styles.cameraWrap}>
+      <View style={[styles.cameraWrap, { height: cameraHeight(screenHeight, large) }]}>
         <CameraView
           ref={cameraRef}
           style={styles.camera}
@@ -151,17 +146,26 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords }: SignPan
         >
           <Ionicons name="camera-reverse-outline" size={22} color={colors.onPrimary} />
         </Pressable>
+        <Pressable
+          style={styles.optionsButton}
+          onPress={() => setOptionsOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`Sign language: ${SIGN_LANGUAGE_NAMES[prefs.signLanguage]}, ${unit}. Change`}
+        >
+          <Text style={styles.optionsText}>{signChoiceLabel(prefs.signLanguage, unit)}</Text>
+          <Ionicons name="chevron-down" size={18} color="#FFFFFF" />
+        </Pressable>
+        <Pressable
+          style={styles.sizeButton}
+          onPress={() => setPref('signCameraLarge', !large)}
+          accessibilityRole="button"
+          accessibilityLabel={large ? 'Make the camera smaller' : 'Make the camera bigger'}
+        >
+          <Ionicons name={large ? 'contract-outline' : 'expand-outline'} size={22} color="#FFFFFF" />
+        </Pressable>
       </View>
 
-      <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="Sign language">
-        {chip('FSL', prefs.signLanguage === 'fsl', () => setPref('signLanguage', 'fsl' as SignLanguage), false, 'Filipino Sign Language')}
-        {chip('ASL', prefs.signLanguage === 'asl', () => setPref('signLanguage', 'asl' as SignLanguage), false, 'American Sign Language')}
-        <View style={styles.separator} />
-        {chip('Words', unit === 'words', () => setPref('signUnit', 'words'))}
-        {chip(lettersReady ? 'Letters' : 'Letters (soon)', unit === 'letters', () => setPref('signUnit', 'letters'), !lettersReady)}
-        <View style={styles.separator} />
-        {chip('Mirror', prefs.signFlip, () => setPref('signFlip', !prefs.signFlip), false, 'Only if signs keep being read wrong: flips the video left and right')}
-      </View>
+      <SignOptionsSheet visible={optionsOpen} models={models} onClose={() => setOptionsOpen(false)} />
 
       {choices.length ? (
         <View style={styles.choices}>
@@ -171,7 +175,7 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords }: SignPan
               key={label}
               style={styles.choice}
               onPress={() => {
-                onWord(label);
+                onWord(label, unit);
                 setChoices([]);
                 scheduleSentence();
               }}
@@ -198,7 +202,7 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords }: SignPan
         {pendingWords > 0 ? (
           <Pressable style={styles.secondary} onPress={onUndoWord} accessibilityRole="button">
             <Ionicons name="arrow-undo-outline" size={18} color={colors.primary} />
-            <Text style={styles.secondaryText}>Undo last word</Text>
+            <Text style={styles.secondaryText}>{unit === 'letters' ? 'Undo last letter' : 'Undo last word'}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -216,7 +220,6 @@ const makeStyles = (t: AppTheme) =>
       backgroundColor: t.colors.primaryLight,
     },
     cameraWrap: {
-      height: 220,
       borderRadius: 12,
       overflow: 'hidden',
       backgroundColor: '#000',
@@ -261,39 +264,33 @@ const makeStyles = (t: AppTheme) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    chips: {
+    optionsButton: {
+      position: 'absolute',
+      left: 8,
+      bottom: 8,
       flexDirection: 'row',
-      flexWrap: 'wrap',
       alignItems: 'center',
       gap: 6,
-    },
-    chip: {
-      minHeight: 40,
+      minHeight: 44,
       paddingHorizontal: 14,
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: t.colors.primary,
-      backgroundColor: t.colors.surface,
+      borderRadius: 22,
+      backgroundColor: 'rgba(0,0,0,0.7)',
+    },
+    sizeButton: {
+      position: 'absolute',
+      right: 8,
+      bottom: 8,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: 'rgba(0,0,0,0.7)',
+      alignItems: 'center',
       justifyContent: 'center',
     },
-    chipSelected: {
-      backgroundColor: t.colors.primary,
-    },
-    chipDisabled: {
-      opacity: 0.5,
-    },
-    chipText: {
-      fontSize: t.font(14),
-      fontWeight: t.weight('700'),
-      color: t.colors.primary,
-    },
-    chipTextSelected: {
-      color: t.colors.onPrimary,
-    },
-    separator: {
-      width: 1,
-      height: 24,
-      backgroundColor: t.colors.border,
+    optionsText: {
+      color: '#FFFFFF',
+      fontSize: t.font(15),
+      fontWeight: '800',
     },
     choices: {
       flexDirection: 'row',

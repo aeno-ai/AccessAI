@@ -50,7 +50,9 @@ async function acceptedFriendIds(userId) {
   const friendships = await Friendship.find({
     status: 'accepted',
     $or: [{ requester: userId }, { recipient: userId }],
-  }).select('requester recipient');
+  })
+    .select('requester recipient')
+    .lean();
   return friendships.map((f) => (String(f.requester) === String(userId) ? f.recipient : f.requester));
 }
 

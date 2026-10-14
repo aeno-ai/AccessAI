@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { router } from 'expo-router';
+import { useAfterFirstScreen } from '@/hooks/use-after-first-screen';
 import { useBootstrap } from '@/hooks/use-bootstrap';
 import { Notifications, registerForPush } from '@/notifications/push';
 
@@ -29,10 +30,19 @@ function openFrom(data: PushData, currentUserId: string | null) {
  */
 export function usePushNotifications() {
   const { isLoggedIn, userId } = useBootstrap();
+  // Asking for permission and telling the server waits until the first
+  // screen is up; handling taps (below) can't wait.
+  const settled = useAfterFirstScreen(isLoggedIn && userId !== null, userId);
+
+  useEffect(() => {
+    if (!Notifications || !settled || !userId) return;
+    void registerForPush(userId);
+    const tokenChanged = Notifications.addPushTokenListener(() => void registerForPush(userId));
+    return () => tokenChanged.remove();
+  }, [settled, userId]);
 
   useEffect(() => {
     if (!Notifications || !isLoggedIn || !userId) return;
-    void registerForPush(userId);
 
     // While AccessAI is open, its own alerts (full-screen SOS, spoken
     // messages) already show — so no banner on top, just the list entry.
@@ -52,11 +62,8 @@ export function usePushNotifications() {
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (response) openFrom(response.notification.request.content.data as PushData, userId);
     });
-    const tokenChanged = Notifications.addPushTokenListener(() => void registerForPush(userId));
-
     return () => {
       tapped.remove();
-      tokenChanged.remove();
     };
   }, [isLoggedIn, userId]);
 }

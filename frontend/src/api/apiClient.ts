@@ -44,7 +44,7 @@ export function isUnreachable(error: unknown): boolean {
 
 const MESSAGES = {
   network: "Can't reach AccessAI. Check your internet and try again.",
-  unreachable: "AccessAI's server isn't reachable right now. Please try again in a moment.",
+  unreachable: "Can't connect right now. Please try again in a moment.",
   tooMany: 'Too many tries. Please wait a moment and try again.',
   server: 'Something went wrong on our side. Please try again.',
   generic: 'Something went wrong. Please try again.',
@@ -101,7 +101,11 @@ export async function apiFetch<T = unknown>(endpoint: string, options: ApiOption
   }
 
   if (!response.ok) {
-    if (response.status === 401) {
+    // Signs out only if this request used the login the phone still has. A
+    // request that left before a password change (which hands this phone a
+    // new login) comes back 401 — that must not sign the person out. Nor
+    // must a wrong password at login, which sends no login at all.
+    if (response.status === 401 && token && (await getToken()) === token) {
       emitUnauthorized();
     }
     throw Object.assign(new Error(friendlyMessage(response.status, data)), {

@@ -29,7 +29,7 @@ async function ensureFriendCode(user) {
     const updated = await User.findOneAndUpdate(
       { _id: user._id, friendCode: { $exists: false } },
       { friendCode: code },
-      { new: true },
+      { returnDocument: 'after' },
     ).catch((error) => {
       if (error.code === 11000) return null; // that code is taken — try another
       throw error;

@@ -13,8 +13,10 @@ import type * as SpeechRecognition from 'expo-speech-recognition';
  * Here the mic always has exactly one OWNER, and only the owner hears the
  * results. Taking the mic from someone else stops their session first and
  * waits for it to really end, so its last events can't leak into the new
- * one. "Blockers" (Accel talking, an SOS countdown, AccessAI in the
- * background…) tell the "Hey Accel" listener to pause.
+ * one. "Blockers" (Accel open, an SOS countdown…) tell the "Hey Accel"
+ * listener to pause. The app talking is NOT a blocker — "Hey Accel" keeps
+ * listening so it can interrupt; it reads `appSpeech()` to ignore its own
+ * voice.
  */
 type SpeechModule = typeof SpeechRecognition.ExpoSpeechRecognitionModule;
 type EventMap = SpeechRecognition.ExpoSpeechRecognitionNativeEventMap;
@@ -39,11 +41,23 @@ export type RecognizerHandlers = {
 
 const handlers = new Map<string, RecognizerHandlers>();
 let owner: string | null = null;
-let active = false; // a native session is running
-let waitForEnd: (() => void) | null = null;
+let active = false; // a native session is running (its "end" hasn't arrived yet)
+// abort() was sent and its "end" is on its way — never send it twice: each
+// abort brings its own "end", and a spare one would stop the NEXT session.
+let aborting = false;
+// Who's waiting for the running session's "end" before taking the mic.
+const endWaiters: (() => void)[] = [];
 const blockers = new Set<string>();
 const watchers = new Set<() => void>();
 let subscribed = false;
+
+/**
+ * Looks at a finished result before its owner gets it; returning true keeps
+ * it from the owner. Accel uses this to hear "Hey Accel" said into another
+ * mic (Conversation, a friend chat) — there's only one recognizer.
+ */
+export type ResultInterceptor = (owner: string, event: EventMap['result']) => boolean;
+let interceptor: ResultInterceptor | null = null;
 
 function changed() {
   watchers.forEach((watch) => watch());
@@ -55,6 +69,11 @@ function dispatch<K extends keyof RecognizerHandlers>(name: K, ...args: Paramete
   handler?.(...args);
 }
 
+function dispatchResult(event: EventMap['result']) {
+  if (owner && event.isFinal && interceptor?.(owner, event)) return;
+  dispatch('result', event);
+}
+
 function subscribeOnce() {
   if (subscribed || !speechModule) return;
   subscribed = true;
@@ -62,17 +81,16 @@ function subscribeOnce() {
   speechModule.addListener('speechstart', () => dispatch('speechstart'));
   speechModule.addListener('speechend', () => dispatch('speechend'));
   speechModule.addListener('volumechange', (event) => dispatch('volumechange', event));
-  speechModule.addListener('result', (event) => dispatch('result', event));
+  speechModule.addListener('result', dispatchResult);
   speechModule.addListener('nomatch', () => dispatch('nomatch'));
   speechModule.addListener('error', (event) => dispatch('error', event));
   speechModule.addListener('end', () => {
     active = false;
-    if (waitForEnd) {
+    aborting = false;
+    if (endWaiters.length) {
       // This "end" belongs to a session that was stopped to hand the mic
       // over — its owner already knows.
-      const resolve = waitForEnd;
-      waitForEnd = null;
-      resolve();
+      endWaiters.splice(0).forEach((resolve) => resolve());
       return;
     }
     dispatch('end');
@@ -89,20 +107,29 @@ export function listen(id: string, eventHandlers: RecognizerHandlers): () => voi
   };
 }
 
-/** Takes the mic for `id`, stopping (and waiting out) whoever had it. */
+/**
+ * Takes the mic for `id`. A session still running — or still stopping after
+ * its owner let go — is stopped and waited out first, so its last events
+ * (its "end" above all) can't land in the new session.
+ */
 export async function acquire(id: string): Promise<void> {
   subscribeOnce();
   if (owner === id) return;
   const previous = owner;
-  if (previous && active && speechModule) {
+  if (active && speechModule) {
     await new Promise<void>((resolve) => {
-      waitForEnd = resolve;
-      speechModule.abort();
+      endWaiters.push(resolve);
+      if (!aborting) {
+        aborting = true;
+        speechModule.abort();
+      }
       // Never wait forever if the phone doesn't send "end".
       setTimeout(() => {
-        if (waitForEnd === resolve) {
-          waitForEnd = null;
+        const index = endWaiters.indexOf(resolve);
+        if (index >= 0) {
+          endWaiters.splice(index, 1);
           active = false;
+          aborting = false;
           resolve();
         }
       }, 800);
@@ -117,6 +144,7 @@ export async function acquire(id: string): Promise<void> {
 export function startSession(id: string, options: SpeechRecognition.ExpoSpeechRecognitionOptions) {
   if (!speechModule || owner !== id) return;
   active = true;
+  aborting = false;
   speechModule.start(options);
 }
 
@@ -125,7 +153,10 @@ export function stopSession(id: string) {
 }
 
 export function abortSession(id: string) {
-  if (owner === id && active) speechModule?.abort();
+  if (owner === id && active && !aborting) {
+    aborting = true;
+    speechModule?.abort();
+  }
 }
 
 /** Gives the mic back (after a session ended). */
@@ -157,4 +188,32 @@ export const isBlocked = () => blockers.size > 0;
 export function watch(callback: () => void): () => void {
   watchers.add(callback);
   return () => watchers.delete(callback);
+}
+
+/** Sets the one result interceptor (see ResultInterceptor). Returns an unsubscribe. */
+export function interceptResults(callback: ResultInterceptor): () => void {
+  interceptor = callback;
+  return () => {
+    if (interceptor === callback) interceptor = null;
+  };
+}
+
+// ---- what the app is saying right now (text-to-speech)
+let speakingText: string | null = null;
+let lastSpokenText: string | null = null;
+let speechEndedAt = 0;
+
+/** speechHelper reports what it's saying (null when it stops). */
+export function setAppSpeech(text: string | null) {
+  if (text === null) {
+    if (speakingText !== null) speechEndedAt = Date.now();
+  } else {
+    lastSpokenText = text;
+  }
+  speakingText = text;
+}
+
+/** What the app is saying now (null if quiet), the last thing it said, and when it went quiet. */
+export function appSpeech(): { text: string | null; last: string | null; endedAt: number } {
+  return { text: speakingText, last: lastSpokenText, endedAt: speechEndedAt };
 }

@@ -40,6 +40,25 @@ export async function fetchSignModels(): Promise<SignModelInfo[]> {
   return models;
 }
 
+/** The sign models, fetched once per screen (null while loading; [] if unreachable). */
+export function useSignModels(): SignModelInfo[] | null {
+  const [models, setModels] = useState<SignModelInfo[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchSignModels()
+      .then((list) => !cancelled && setModels(list))
+      .catch(() => !cancelled && setModels([]));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return models;
+}
+
+/** Whether `language` + `unit` can be used now. */
+export const signReady = (models: SignModelInfo[] | null, language: SignLanguage, unit: SignUnit) =>
+  models?.some((model) => model.language === language && model.unit === unit && model.available) ?? false;
+
 async function uploadPiece(sessionId: string, uri: string, startedAt: number, index: number, final: boolean): Promise<ChunkResult> {
   const token = await getToken();
   const task = new UploadTask(new File(uri), apiUrl(`/sign/session/${sessionId}/chunk`), {
@@ -62,7 +81,7 @@ async function uploadPiece(sessionId: string, uri: string, startedAt: number, in
     body = null;
   }
   if (response.status < 200 || response.status >= 300 || !body) {
-    throw Object.assign(new Error(body?.message ?? 'Sign language is not reachable right now.'), {
+    throw Object.assign(new Error(body?.message ?? "Sign language isn't working right now."), {
       status: response.status,
       code: body?.code,
     });
@@ -116,11 +135,11 @@ export function useSignRecognition({ cameraRef, cameraReady, active, language, u
         } catch (error) {
           const code = (error as { code?: string }).code;
           if (code === 'SIGN_SESSION_GONE') {
-            setMessage('Sign language restarted.');
+            setMessage('Sign language started again.');
             stopped = true;
             setResumeKey((key) => key + 1);
           } else if (!stopped) {
-            setMessage(error instanceof Error ? error.message : 'Sign language is not reachable right now.');
+            setMessage(error instanceof Error ? error.message : "Sign language isn't working right now.");
           }
         } finally {
           try {
@@ -146,8 +165,8 @@ export function useSignRecognition({ cameraRef, cameraReady, active, language, u
         setPhase('off');
         setMessage(
           isApiError(error) && error.status === 409
-            ? `${language.toUpperCase()} ${unit} aren't available yet — the model is still being trained.`
-            : 'Sign language needs the AccessAI server, which is not reachable right now. You can still type.',
+            ? `${unit === 'letters' ? 'Letters' : 'Words'} aren't ready yet for ${language.toUpperCase()}. Try the other option.`
+            : "Sign language isn't working right now. You can still type.",
         );
         return;
       }
@@ -156,7 +175,7 @@ export function useSignRecognition({ cameraRef, cameraReady, active, language, u
       while (!stopped && cameraRef.current) {
         if (Date.now() - lastSigning > IDLE_PAUSE_MS) {
           setPhase('paused');
-          setMessage('Paused — no signing for a while. Tap Resume to keep going.');
+          setMessage('Paused because no one signed for a while. Tap Resume to keep going.');
           break;
         }
         const startedAt = Date.now();

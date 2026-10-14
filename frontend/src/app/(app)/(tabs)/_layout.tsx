@@ -22,6 +22,10 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        // A tab you're not looking at stays as it was ("frozen") instead of
+        // redrawing whenever friends, messages or SOS data change elsewhere,
+        // so switching tabs stays quick. It catches up when you return.
+        freezeOnBlur: true,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },

@@ -8,15 +8,15 @@
     "scheme": "frontend",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/icon.png",
       "infoPlist": {
-        "NSSpeechRecognitionUsageDescription": "Allow PDAccessAI to turn what's said in a conversation, and your voice commands to Accel, into text.",
-        "NSMicrophoneUsageDescription": "Allow PDAccessAI to use the microphone to turn what's said in a conversation, and your voice commands to Accel, into text."
+        "NSSpeechRecognitionUsageDescription": "Allow AccessAI to turn what's said in a conversation, and your voice commands to Accel, into text.",
+        "NSMicrophoneUsageDescription": "Allow AccessAI to use the microphone to turn what's said in a conversation, and your voice commands to Accel, into text."
       }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#5362C8",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -38,9 +38,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#5362C8",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 160
         }
       ],
       "expo-secure-store",
@@ -48,13 +48,13 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow PDAccessAI to use your location so it can be included when you send an SOS alert."
+          "locationWhenInUsePermission": "Allow AccessAI to use your location so it can be included when you send an SOS alert."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow PDAccessAI to use the camera to scan a friend's QR code and to recognize sign language.",
+          "cameraPermission": "Allow AccessAI to use the camera to scan a friend's QR code and to recognize sign language.",
           "recordAudioAndroid": false
         }
       ],
@@ -62,15 +62,15 @@
         "expo-notifications",
         {
           "icon": "./assets/images/notification-icon.png",
-          "color": "#208AEF",
+          "color": "#5362C8",
           "defaultChannel": "chat_messages"
         }
       ],
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow PDAccessAI to use the microphone to turn what's said in a conversation, and your voice commands to Accel, into text.",
-          "speechRecognitionPermission": "Allow PDAccessAI to turn what's said in a conversation, and your voice commands to Accel, into text.",
+          "microphonePermission": "Allow AccessAI to use the microphone to turn what's said in a conversation, and your voice commands to Accel, into text.",
+          "speechRecognitionPermission": "Allow AccessAI to turn what's said in a conversation, and your voice commands to Accel, into text.",
           "androidSpeechServicePackages": [
             "com.google.android.googlequicksearchbox",
             "com.google.android.as"

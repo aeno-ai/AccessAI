@@ -1,5 +1,5 @@
 {
-  "about": "Everything Accel (the voice assistant) can do. Each action has an id (the app's frontend/src/accel/intent-ids.json must list the same ids), a description the AI reads, the details it may need (slots), and example sentences in English, Filipino and Taglish. More examples = better understanding: add freely, then restart the AI service and the vector index rebuilds by itself.",
+  "about": "Everything Accel (the voice assistant) can do. Each action has an id (the app's frontend/src/accel/catalog.ts must list the same ids — check with `node scripts/check-accel-catalog.mjs` in frontend/), a description the AI reads, the details it may need (slots), and example sentences in English, Filipino and Taglish. More examples = better understanding: add freely, then restart the AI service and the vector index rebuilds by itself.",
   "intents": [
     {
       "id": "nav.home",
@@ -26,7 +26,6 @@
         "take me to conversation mode",
         "navigate me to conversation mode",
         "I want to talk with someone",
-        "start a conversation",
         "open conversation",
         "I want to talk to a deaf person",
         "help me talk to someone",
@@ -118,15 +117,16 @@
     },
     {
       "id": "nav.learn",
-      "description": "Open Learn (tutorials)",
+      "description": "Open Learn: short lessons to learn sign language (FSL or ASL), with camera practice",
       "slots": [],
       "examples": [
         "open learn",
-        "tutorials",
-        "teach me how to use the app",
         "lessons",
+        "I want to learn sign language",
+        "teach me sign language",
+        "practice signing",
         "buksan ang learn",
-        "paano gamitin ang app"
+        "gusto kong matuto ng sign language"
       ]
     },
     {
@@ -343,7 +343,7 @@
     },
     {
       "id": "read.new_messages",
-      "description": "Read out whether there are new chat messages or texts from friends, and from whom",
+      "description": "Go through new (unread) messages one friend at a time, reading them aloud and offering to reply",
       "slots": [],
       "examples": [
         "any new messages",
@@ -380,6 +380,66 @@
         "what was the last thing Ben said",
         "anong huling sinabi ni Ana",
         "read me what mom sent"
+      ]
+    },
+    {
+      "id": "read.chat_with",
+      "description": "Read a chat with a friend aloud, a few messages at a time (\"Andrew said… You said…\"); in an open chat, that chat",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "read my chat with Ana",
+        "read my messages with Ben",
+        "read our conversation",
+        "read the messages",
+        "what did Ana and I talk about",
+        "what did we talk about",
+        "read Carla's chat",
+        "basahin ang usapan namin ni Ana",
+        "basahin mo yung chat namin ni Ben",
+        "ano pinag-usapan namin ni Rosa",
+        "read this chat to me",
+        "pakibasa ng messages namin"
+      ]
+    },
+    {
+      "id": "read.my_last_message",
+      "description": "Read aloud the last message the user sent to a friend (in an open chat, to that friend)",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "read my last message to Ana",
+        "read my previous message to Ben",
+        "what did I say to Ana",
+        "what was my last message",
+        "read my last message",
+        "what did I send to Carla",
+        "ano huling sinabi ko kay Ana",
+        "ano yung huling message ko kay Ben",
+        "basahin ang huling message ko",
+        "what did I tell her"
+      ]
+    },
+    {
+      "id": "read.older_messages",
+      "description": "Read older (earlier) messages in the chat being read or open, continuing further back",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "older messages",
+        "read previous messages",
+        "read older messages",
+        "hear more messages",
+        "earlier messages",
+        "go further back",
+        "read more",
+        "mga naunang message",
+        "basahin pa yung mga luma",
+        "yung dati pang messages",
+        "more messages from Ana"
       ]
     },
     {
@@ -464,7 +524,7 @@
     },
     {
       "id": "msg.send",
-      "description": "Send a chat message to a friend (the friend's name and the message text)",
+      "description": "Send a chat message to a friend. The friend's name and the message text if said; without them Accel asks who and what (e.g. 'send a message to Ana')",
       "slots": [
         "friendName",
         "messageText"
@@ -477,7 +537,36 @@
         "sabihin mo kay Ana pauwi na ako",
         "i-message si Ben na male-late ako",
         "pakisabi kay mama nandito na ako",
-        "send a message to Lola: kumain na po ako"
+        "send a message to Lola: kumain na po ako",
+        "send a message to Ana",
+        "I want to send a message",
+        "message Ben",
+        "send Carla a message",
+        "mag-message kay Ana",
+        "i-message si Ben",
+        "gusto kong mag-message kay Rosa",
+        "write a message to my friend"
+      ]
+    },
+    {
+      "id": "msg.reply",
+      "description": "Reply to the friend who messaged last (or the chat that is open), optionally with the reply text",
+      "slots": [
+        "friendName",
+        "messageText"
+      ],
+      "examples": [
+        "reply I'm coming",
+        "reply to Ana",
+        "reply to Ben I will be there in five minutes",
+        "reply okay see you",
+        "respond to her message",
+        "answer his message",
+        "sagutin si Ana",
+        "sagutin mo si Ben ng okay",
+        "i-reply mo na papunta na ako",
+        "reply ka na otw na ako",
+        "replyan si Carla"
       ]
     },
     {
@@ -622,6 +711,331 @@
       ]
     },
     {
+      "id": "read.screen",
+      "description": "Describe what is on the screen the person is on right now",
+      "slots": [],
+      "examples": [
+        "what's on this screen",
+        "describe this page",
+        "what's on the page",
+        "what do I see",
+        "read the screen",
+        "what's here",
+        "ano'ng nandito",
+        "ano ang nasa screen",
+        "ilarawan mo ang screen"
+      ]
+    },
+    {
+      "id": "read.recent_sos",
+      "description": "Read the SOS alerts friends sent in the past week, and the person's own last SOS: when, where and how they ended",
+      "slots": [],
+      "examples": [
+        "who sent an SOS recently",
+        "any SOS lately",
+        "recent SOS",
+        "SOS history",
+        "my last SOS",
+        "was there an SOS this week",
+        "sino ang nag-SOS",
+        "may nag-SOS ba",
+        "sino nag-sos kahapon"
+      ]
+    },
+    {
+      "id": "nav.last_conversation",
+      "description": "Open the most recent saved in-person conversation",
+      "slots": [],
+      "examples": [
+        "open my last conversation",
+        "continue my last conversation",
+        "go back to my last conversation",
+        "resume the last conversation",
+        "buksan ang huling usapan",
+        "ituloy ang huling usapan"
+      ]
+    },
+    {
+      "id": "chats.open",
+      "description": "On the Chats screen: open a saved conversation by its name (friendName is the conversation's name)",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "open Ate Lyka",
+        "open the conversation called Dagupan trip",
+        "open Kuya Ben's conversation",
+        "buksan ang Dagupan trip"
+      ]
+    },
+    {
+      "id": "chats.read_newest",
+      "description": "On the Chats screen: read the newest saved conversation aloud",
+      "slots": [],
+      "examples": [
+        "read the newest one",
+        "read the latest conversation",
+        "what was the newest conversation",
+        "basahin ang pinakabago"
+      ]
+    },
+    {
+      "id": "conv.start",
+      "description": "Start a new in-person conversation, optionally with a name (friendName is the conversation's name)",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "start a conversation",
+        "start a new conversation",
+        "start a conversation called Ate Lyka",
+        "new conversation named Dagupan trip",
+        "begin a new conversation",
+        "bagong usapan",
+        "gumawa ng bagong usapan"
+      ]
+    },
+    {
+      "id": "conv.my_turn",
+      "description": "In Conversation mode: it's the person's own turn to talk, so the microphone listens to them",
+      "slots": [],
+      "examples": [
+        "my turn",
+        "it's my turn",
+        "let me talk",
+        "I'll speak now",
+        "ako na",
+        "ako naman",
+        "turn ko na"
+      ]
+    },
+    {
+      "id": "conv.their_turn",
+      "description": "In Conversation mode: it's the other person's turn, so the microphone listens to them",
+      "slots": [],
+      "examples": [
+        "their turn",
+        "it's their turn",
+        "let them talk",
+        "listen to them",
+        "his turn",
+        "her turn",
+        "siya na",
+        "sila naman"
+      ]
+    },
+    {
+      "id": "conv.say",
+      "description": "In Conversation mode: say these words aloud to the other person (messageText is the words)",
+      "slots": [
+        "messageText"
+      ],
+      "examples": [
+        "say I need to go to the clinic",
+        "say thank you very much",
+        "say where is the bathroom",
+        "sabihin mo gutom na ako",
+        "pakisabi salamat po"
+      ]
+    },
+    {
+      "id": "conv.read_last",
+      "description": "In Conversation mode: read aloud what the other person said last",
+      "slots": [],
+      "examples": [
+        "what did they say",
+        "read what they said",
+        "what did she just say",
+        "ano sinabi niya",
+        "ano ang sabi nila",
+        "what did the other person say",
+        "repeat what the other person said",
+        "the other person's last words"
+      ]
+    },
+    {
+      "id": "conv.read_all",
+      "description": "In Conversation mode: read the conversation so far aloud",
+      "slots": [],
+      "examples": [
+        "read the conversation",
+        "read me the whole conversation",
+        "what have we said",
+        "basahin ang usapan"
+      ]
+    },
+    {
+      "id": "conv.quick_replies",
+      "description": "In Conversation mode: list the person's quick replies aloud",
+      "slots": [],
+      "examples": [
+        "quick replies",
+        "read my quick replies",
+        "what are my quick replies",
+        "show quick replies",
+        "mga quick reply"
+      ]
+    },
+    {
+      "id": "conv.say_reply",
+      "description": "In Conversation mode: say one of the quick replies aloud, by its number",
+      "slots": [],
+      "examples": [
+        "say quick reply 2",
+        "quick reply number one",
+        "use the first quick reply",
+        "quick reply three"
+      ]
+    },
+    {
+      "id": "conv.sign_mode",
+      "description": "In Conversation mode: turn sign language mode on or off for the other person",
+      "slots": [],
+      "examples": [
+        "sign mode on",
+        "turn on sign language mode",
+        "sign language mode off",
+        "stop sign mode",
+        "i-on ang sign mode"
+      ]
+    },
+    {
+      "id": "conv.rename",
+      "description": "In Conversation mode: rename the conversation (friendName is the new name)",
+      "slots": [
+        "friendName"
+      ],
+      "examples": [
+        "rename it to Dagupan trip",
+        "call this conversation Ate Lyka",
+        "rename this conversation",
+        "palitan ang pangalan ng usapan"
+      ]
+    },
+    {
+      "id": "conv.end",
+      "description": "In Conversation mode: end the conversation and go back (it is already saved)",
+      "slots": [],
+      "examples": [
+        "end the conversation",
+        "finish the conversation",
+        "close this conversation",
+        "we're done talking",
+        "tapusin ang usapan"
+      ]
+    },
+    {
+      "id": "learn.next_lesson",
+      "description": "Start the next sign-language lesson in Learn",
+      "slots": [],
+      "examples": [
+        "start the next lesson",
+        "next lesson",
+        "continue my lesson",
+        "start my sign language lesson",
+        "simulan ang lesson",
+        "ituloy ang aralin"
+      ]
+    },
+    {
+      "id": "learn.practice",
+      "description": "Open sign practice in Learn, to practise signs with the camera",
+      "slots": [],
+      "examples": [
+        "sign practice",
+        "open practice",
+        "practise signs",
+        "practice mode",
+        "mag-practice ng sign"
+      ]
+    },
+    {
+      "id": "learn.choose",
+      "description": "In a Learn lesson: choose an answer, by its number or its words (messageText is the answer's words)",
+      "slots": [
+        "messageText"
+      ],
+      "examples": [
+        "the first one",
+        "the second one",
+        "choose thank you",
+        "is it hello",
+        "my answer is yes",
+        "yung pangalawa"
+      ]
+    },
+    {
+      "id": "learn.check",
+      "description": "In a Learn lesson: check the chosen answer",
+      "slots": [],
+      "examples": [
+        "check",
+        "check my answer",
+        "is that right",
+        "tama ba"
+      ]
+    },
+    {
+      "id": "learn.continue",
+      "description": "In a Learn lesson: go on to the next question",
+      "slots": [],
+      "examples": [
+        "continue",
+        "next",
+        "next question",
+        "go on",
+        "tuloy",
+        "susunod"
+      ]
+    },
+    {
+      "id": "learn.hear_steps",
+      "description": "In a Learn lesson: hear the steps for making the sign",
+      "slots": [],
+      "examples": [
+        "hear the steps",
+        "read the steps",
+        "how do I sign it",
+        "show me how",
+        "paano gawin"
+      ]
+    },
+    {
+      "id": "learn.skip",
+      "description": "In a Learn lesson: skip the camera step",
+      "slots": [],
+      "examples": [
+        "skip",
+        "skip this one",
+        "not now",
+        "laktawan"
+      ]
+    },
+    {
+      "id": "blocked.outside",
+      "description": "Something outside AccessAI that Accel never does: other apps, phone settings, phone calls (other than an SOS), searching the web, music",
+      "slots": [],
+      "examples": [
+        "open Facebook",
+        "call mom",
+        "turn on wifi",
+        "turn on the flashlight",
+        "search Google for the weather",
+        "open YouTube",
+        "set an alarm",
+        "play some music",
+        "order pizza",
+        "tawagan si mama",
+        "buksan ang Messenger",
+        "open maps",
+        "open Waze",
+        "open the calculator",
+        "tawagan mo ang nanay ko",
+        "pakitawagan si kuya",
+        "call my father"
+      ]
+    },
+    {
       "id": "none",
       "description": "Not a command for the app: small talk, questions about the world, or noise",
       "slots": [],
@@ -635,9 +1049,7 @@
         "hello",
         "thank you",
         "uhm",
-        "the quick brown fox",
-        "play some music",
-        "order pizza"
+        "the quick brown fox"
       ]
     }
   ]

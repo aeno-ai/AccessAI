@@ -41,7 +41,7 @@ export default function SettingsScreen() {
           Settings
         </Text>
         <Text style={styles.subtitle}>
-          Make AccessAI work the way you need. Saved on this phone, and works offline.
+          Make AccessAI work the way you need.
         </Text>
 
         <SectionHeader title="You" />
@@ -58,7 +58,7 @@ export default function SettingsScreen() {
             title="Accel, voice assistant"
             description={
               prefs.accelEnabled
-                ? `On${prefs.accelWakeWord ? ' · "Hey Accel"' : ''} · ${prefs.accelVoice === 'woman' ? "Woman's" : prefs.accelVoice === 'man' ? "Man's" : 'App'} voice`
+                ? `On${prefs.accelWakeWord ? ' · Always listening' : ''} · ${prefs.accelVoice === 'woman' ? "Woman's" : prefs.accelVoice === 'man' ? "Man's" : 'App'} voice`
                 : 'Off'
             }
             onPress={() => router.push('/settings/accel' as Href)}
@@ -82,6 +82,13 @@ export default function SettingsScreen() {
             title="Conversation & speech"
             description={speechSummary}
             onPress={() => router.push('/settings/speech')}
+          />
+          <SettingRow
+            divided
+            icon="hand-left-outline"
+            title="Sign language"
+            description={`${prefs.signLanguage.toUpperCase()} · ${prefs.signUnit === 'letters' ? 'Letters' : 'Words'}`}
+            onPress={() => router.push('/settings/sign' as Href)}
           />
           <SettingRow
             divided

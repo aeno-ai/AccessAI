@@ -5,7 +5,7 @@ How to plug models into AccessAI later — and what to check each time.
 | Section | When you need it |
 |---|---|
 | [A. The four sign model slots](#a-the-four-sign-model-slots) | Any time you drop in a sign model |
-| [B. Retrained word models](#b-retrained--improved-word-models) | A better FSL-105 / WLASL100 run, or more signs |
+| [B. Retrained word models](#b-retrained--improved-word-models) | A better FSL-105 / WLASL run, or more signs |
 | [C. Letters (fingerspelling) models](#c-letters-fingerspelling-models) | When the letters models are trained |
 | [D. Accel's AI models and commands](#d-accels-ai-models-and-commands) | Changing the LLM / embeddings, adding a voice command |
 | [E. Sign recognition on the phone](#e-moving-sign-recognition-onto-the-phone-offline) | Making sign language work without the laptop |
@@ -19,7 +19,7 @@ Background on how the pieces work: [`ai/README.md`](README.md).
 
 ```
 ai/models/sign/
-  asl/words/     WLASL100  (100 signs)   ✓ installed
+  asl/words/     WLASL     (125 signs)   ✓ installed (+ features.json: hand shapes)
   fsl/words/     FSL-105   (105 signs)   ✓ installed
   asl/letters/   ASL fingerspelling      — not trained yet
   fsl/letters/   FSL fingerspelling      — not trained yet
@@ -44,11 +44,12 @@ Each folder takes:
 }
 ```
 
-- `input`: what the model expects. Only `holistic-32` exists today (32 frames × 69 points). Any other value leaves the model "not available" until its code is added (section C).
+- `input`: what the model expects. `holistic-32` (32 frames × 69 points, the default) or `hand-21` (one frame of one hand, for letters; section C). Any other value leaves the model "not available" until its code is added.
+- `segmentation`: how a sign is cut out of the video. `auto` (hands up, then down; the default) or `hold` (a handshape held still; the default for `hand-21`).
 - `fixed_seconds`: the length of the training clips. FSL-105 clips are 4 s with resting hands around the sign, so 4.0; WLASL is trimmed to the sign, so `null`. It controls how much padding the segmenter puts around a detected sign (`segmenter.py`).
 - `min_confidence`: the default "how sure before adding a word". The app's Loose / Normal / Strict (0.35 / 0.5 / 0.7) is sent per session and overrides it.
 
-**The app needs no change when a model appears.** It asks `GET /api/sign/models`, and the Letters chip un-greys by itself (`frontend/src/components/conversation/SignPanel.tsx`, `lettersReady`). Removing the files greys it out again.
+**The app needs no change when a model appears.** It asks `GET /api/sign/models`. Letters stops saying "Coming soon" by itself, both in the camera's sheet and in Settings → Sign language, which also lists all four slots as "Ready" or "Coming soon" (`frontend/src/components/sign/SignChoices.tsx`, `signReady`). Removing the files turns it back to "Coming soon".
 
 ### Check after every model swap
 
@@ -92,7 +93,7 @@ The server feeds the model exactly what the notebooks trained on, using code cop
 | Frames | 32, evenly spaced: `round(linspace(0, n-1, 32))` | `sample_frame_indices()` |
 | Normalization | Centre on the shoulders' midpoint, divide by shoulder width; the clip median if a frame has no shoulders, else 0.5 / 0.25 | `normalize()` |
 | Video | **Not mirrored** (the app's "Mirror" chip undoes phones that save mirrored video) | `session.py` |
-| Model input | `(1, 32, 207)` float32 | `registry.py` → `predict()` |
+| Model input | `(1, 32, 207)` float32, plus the extra numbers its `features.json` asks for (ASL: 291) | `make_features()`, `registry.py` → `predict()` |
 
 **If a notebook changes any of these**, change `features.py` the same way, and the tester too. Otherwise the model gets numbers it has never seen, and its accuracy drops with no error message.
 
@@ -108,52 +109,45 @@ The server feeds the model exactly what the notebooks trained on, using code cop
 
 ## C. Letters (fingerspelling) models
 
-The letters models aren't trained yet, and their input isn't decided. Here's what each choice means for the code. Where to drop the files: `ai/models/sign/<fsl|asl>/letters/` (see the `PUT_MODEL_FILES_HERE.txt` there). Labels look like `{"0": "A", "1": "B", …}`.
+**Ready and waiting (2026-10-08).** Both letters slots, the app's letter-joining and the spelling fix are built. What's left depends on the input the letters notebooks use, which isn't decided yet.
 
-### Option 1 — same input as the word models (32 frames × 69 Holistic points)
-- **Server:** nothing to change. Drop in `model.keras` + `labels.json`. Add `meta.json` only if the clips' timing differs.
+Drop the files into `ai/models/sign/<fsl|asl>/letters/` (the `PUT_MODEL_FILES_HERE.txt` there says the same). Labels look like `{"0": "A", "1": "B", …}`. Then pick the `meta.json` that matches the model:
+
+| The model takes | Copy to `meta.json` | Also do |
+|---|---|---|
+| 32 frames × 69 Holistic points (like the word models) | `meta.example.json` | nothing |
+| ONE frame of one hand (21 points), the usual fingerspelling model | `meta.hand21.example.json` | paste the notebook's normalization into `normalize_hand()` |
+| N frames of one hand (letters with motion, like J and Z) | (not built) | a builder like `build_hand21` over `sample_frame_indices(n, N)` frames |
+
+### Input 1: same as the word models (`holistic-32`)
+- **Server:** nothing to change.
 - **Segmenting:** the same AUTO rule as words (hand above the waist line → a "sign"), so each letter must be signed as a separate movement. That's fine for slow spelling, but continuous fingerspelling will merge letters, so watch for that in testing.
-- **App:** the change described under "App changes" below.
 
-### Option 2 — one hand, one frame (21 hand landmarks, a still handshape)
-Most fingerspelling models look like this. Three server pieces:
+### Input 2: one hand, one frame (`hand-21`): built
+- **Features**, `registry.py`:
+  - `build_hand21()` takes the frame nearest the middle of the hold, the right hand if present, else the left. It returns `(1, 42)` = 21 × (x, y).
+  - **`normalize_hand()` is a placeholder.** It is wrist-relative and scaled to hand size 1. **Replace its body with the letters notebook's exact normalization** (and use the same in the tester), or the model gets numbers it never saw.
+- **Segmenting**, `segmenter.py` → `HoldSegmenter`:
+  - A letter = the handshape held still for `HOLD_SECONDS` (0.4 s), read once.
+  - The next letter needs the shape to change (`HOLD_SHAPE`) or the hand to move (`HOLD_MOVE`). A double letter ("LL") = move a little and hold again.
+  - Tune the three numbers while testing.
+- **Choosing it**, `session.py`: `meta.json` `"segmentation": "hold"`. That is the default for `hand-21`.
+- **Checked** with synthetic frames on 2026-10-08:
+  - one read per hold, no repeats while holding;
+  - a new shape is a new letter, and moving and holding again is a double letter;
+  - a fake hand-21 model predicts end to end;
+  - the word models still match the tester 227/227.
 
-1. **Features**, in `registry.py`. Allow the new input name where `holistic-32` is checked, and add a builder. The hand points are already in `pack()`'s output: slots 0–20 left hand, 21–41 right.
-   ```python
-   # e.g. meta.json: { "input": "hand-21", "segmentation": "hold" }
-   def build_hand21(frames):          # frames: (n, 69, 3) from pack()
-       frame = frames[-1]             # the steadiest frame (see segmenter)
-       hand = frame[21:42] if frame[21:42, 2].any() else frame[0:21]   # right hand, else left
-       # normalize EXACTLY like the letters notebook does (often: relative to the wrist, scaled by hand size)
-       return hand[:, :2].reshape(1, -1)
-   ```
-   Then make `SignModel.predict()` call the builder for that input instead of the 32-frame path.
-2. **Segmenting**, in `segmenter.py`. Add a `HoldSegmenter` next to `AutoSegmenter`:
-   - a letter = the hand **held still** for ~0.3–0.5 s (wrist and fingertips barely move between frames) → read once;
-   - don't repeat it until the hand moves or changes shape (debounce);
-   - two different letters in a row are fine; a double letter ("LL") needs the hand to move away and back.
-
-   `SignSession` (`session.py`) picks the segmenter from `meta.json` `"segmentation": "hold"` (default `"auto"`).
-3. **Training/inference match:** copy the letters notebook's normalization exactly, the same way `features.py` copies the words notebook. Add the letters case to `sign_check.py`, so recordings can be replayed against it.
-
-### Option 3 — a short hand sequence (letters with motion, like J and Z)
-- Like option 2, but the builder takes N frames of the hand (use `sample_frame_indices(n, N)` from `features.py`).
-- Segmenting can stay "hold", with the clip being the frames since the last read letter; or use AUTO if each letter is a distinct movement.
-
-### App changes (needed for any letters model)
-Today the app treats every recognized sign as a **word**: `Composer.tsx` → `addSignedWord()` joins them with spaces, and when signing pauses, `signWordsToSentence()` sends them to `/assistant/polish` with `kind: "gloss"`. Letters need:
-
-1. **No spaces between letters.** When the session's unit is `letters`, `addSignedWord()` appends to the current word ("H", "E", "L", "L", "O" → `hello`), and a pause ends the word (adds a space). `SignPanel` already knows the unit; pass it to `onWord`.
-2. **Spelling fix (optional, online).** Add `kind: "spell"`:
-   - `ai/app/polish.py`: a short prompt like "these letters were fingerspelled, possibly with mistakes; return the most likely word or name; never invent; keep it if unsure", with a tight length check.
-   - `ai/app/main.py`: `PolishRequest.kind` pattern `^(message|gloss|spell)$`.
-   - `backend/src/validators/assistantValidators.js`: allow `spell`.
-   - Show it with Undo, like "Undo sentence" today, because names must stay as spelled.
-3. **The "Did you mean" chips** work as they are (top 5 letters).
+### What the app already does with letters
+- **Letters join into words.** `Composer.tsx` → `addSigned(sign, unit)`: "H","E","L","L","O" → `hello`, and a pause (2.5 s) ends the word. "Undo last letter" removes one letter.
+- **Spelling fix** (online, if "Make signed words into a sentence" is on). On a pause, the spelled word goes to `/assistant/polish` with `kind: "spell"` (`ai/app/polish.py`, `SPELL_PROMPT`).
+  - The answer is only used if it is one word at most 2 letters different (`_looks_safe`). Otherwise the letters stay as spelled, so names are safe.
+  - The app shows "Spelling fixed: …" with **Undo**.
+- **"Did you mean" chips** work as they are (top 5 letters).
 
 ### Checks for a letters model
-1. The log line, then `GET /sign/models` shows `letters: available: true`. The app's Letters chip turns on.
-2. On the phone: spell a known word slowly. Check each letter appears once (debounce), double letters work, and the word ends on a pause.
+1. The log line, then `GET /sign/models` shows `letters: available: true` (and its `input`). Letters turns on in the app.
+2. On the phone: spell a known word slowly. Check that each letter appears once, double letters work, and the word ends on a pause.
 3. Add letters recordings to the tester, then a `sign_check` comparison.
 
 ---
@@ -206,7 +200,8 @@ Different embedding models give different similarity ranges, so re-tune after ch
    cd ..\ai
    .venv\Scripts\python -m app.eval              # add 2–3 NEW sentences to eval.jsonl first (never copy them into intents.json)
    ```
-6. If a new slot or new screen is needed: also `ai/app/interpret.py` (the slot schema and checks), `backend/src/controllers/assistantController.js` (the slot whitelist), and `frontend/src/accel/screens.ts` ("where am I").
+6. If a new slot or new screen is needed: also `ai/app/interpret.py` (the slot schema and checks), `backend/src/controllers/assistantController.js` (the slot whitelist), and `frontend/src/accel/screens.ts` ("where am I", "what's on this screen", "what can I do here").
+7. **A command for one screen only** (like "my turn" in Conversation mode): give it `screen: '<the screen's name>'` in `catalog.ts`, put its rule in `SCREEN_RULES` in `rules.ts` (tried first, but only while that screen is open; `hereOnly` if it means nothing elsewhere, like "continue"), and its handler in that screen's `useAccelScreen({ commands })` (`frontend/src/accel/screenContext.ts`), next to the button it does the same as. Don't add it to `planFor()`: asked on another screen, Accel says where it works.
 
 ### Guardrails that must stay
 - The LLM's `intent` is an **enum of the shortlist** (Ollama JSON schema), and is re-checked in Python, Node and the app.
@@ -265,8 +260,8 @@ Today it runs on the laptop. For real users, run the same `ai/` service plus Oll
 | Integration | Files you touch |
 |---|---|
 | New/retrained word model | `ai/models/sign/<lang>/words/{model.keras,labels.json,meta.json}` |
-| Letters model, same input | `ai/models/sign/<lang>/letters/*` + `Composer.tsx` (letters join) + optional `polish.py` `spell` |
-| Letters model, new input | the above + `registry.py` (feature builder) + `segmenter.py` (hold segmenter) + `session.py` (pick it) |
+| Letters model, same input as words | `ai/models/sign/<lang>/letters/{model.keras,labels.json}` (+ `meta.example.json` → `meta.json` if needed) |
+| Letters model, one hand one frame | the above with `meta.hand21.example.json` → `meta.json`, plus the notebook's normalization in `normalize_hand()` (`registry.py`) |
 | Different chat / embedding model | `backend/.env` (`AI_CHAT_MODEL`, `AI_EMBED_MODEL`), maybe thresholds |
 | New Accel command | `ai/intents.json`, `accel/catalog.ts`, `accel/actions.ts`, `accel/rules.ts`, `ai/eval.jsonl` |
 | On-phone sign | new `frontend/src/sign/*`, a new hook beside `use-sign-recognition.ts`, `prefs.signEngine`, native libraries + rebuild |

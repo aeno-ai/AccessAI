@@ -4,13 +4,14 @@
 
 One folder per language and unit. The AI service loads whatever is here
 when it starts (`npm run dev` in `backend/`), and the app shows only what's
-available — e.g. "Letters (soon)" stays greyed out until a letters model is
-in place.
+available — e.g. Letters says "Coming soon" until a letters model is in
+place. Each folder has a `PUT_MODEL_FILES_HERE.txt` saying what goes there.
 
 ```
 ai/models/sign/
   fsl/words/     model.keras + labels.json   FSL-105 (105 words)    ✓
-  asl/words/     model.keras + labels.json   WLASL100 (100 words)   ✓
+  asl/words/     model.keras + labels.json   WLASL (125 words)      ✓
+                 + features.json (hand shapes)
   fsl/letters/   (empty — fingerspelling model not trained yet)
   asl/letters/   (empty — fingerspelling model not trained yet)
 ```
@@ -42,6 +43,11 @@ copy them from `AccessAI-tester/models/` like this:
   (x, y, present), centred on the shoulders and scaled by shoulder width —
   exactly the tester's `pack()` + `normalize()` (copied in
   `ai/app/sign/features.py`).
+- A model trained with extra numbers per frame says so in a `features.json`
+  from the same run: `{"hand": true}` adds 42 + 42 hand-shape numbers (291 in
+  all, the ASL model), `"velocity": true` adds 138 more. `make_features()` in
+  `features.py` builds them, exactly like the tester. A model whose input
+  width doesn't match is shown as not ready instead of crashing.
 - Output: softmax over the classes in `labels.json`.
 
 ## Optional `meta.json`
@@ -59,6 +65,8 @@ copy them from `AccessAI-tester/models/` like this:
   window; leave it out (`null`) for clips trimmed to the sign (WLASL).
 - `min_confidence`: the default "how sure before adding a word" (the app's
   Loose / Normal / Strict overrides it).
-- `input`: keep `holistic-32`. A letters model trained on something else
-  (say, one hand in one frame) needs its own feature code in
-  `ai/app/sign/registry.py` first — the folder will say so until then.
+- `input`: `holistic-32` (the default, all word models) or `hand-21` (one
+  frame of one hand, for a typical letters model, with `"segmentation":
+  "hold"`). See `letters/meta.hand21.example.json` and MODEL_INTEGRATION.md
+  section C: a `hand-21` model also needs the notebook's normalization in
+  `normalize_hand()` (`ai/app/sign/registry.py`).

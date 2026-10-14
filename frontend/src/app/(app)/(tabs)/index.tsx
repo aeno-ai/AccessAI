@@ -1,35 +1,40 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { router } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import { DrawerToggleButton } from 'expo-router/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import { BigTextCard } from '@/components/conversation/BigTextCard';
 import { AppLogo } from '@/components/onboarding/Illustrations';
-import { FeatureTile } from '@/components/dashboard/FeatureTile';
 import { SosBanner } from '@/components/dashboard/SosBanner';
 import { ActiveSosCards } from '@/components/sos/ActiveSosCards';
+import { RecentSosCard } from '@/components/sos/RecentSosCard';
 import { IconButton } from '@/components/ui/IconButton';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { DASHBOARD_FEATURES } from '@/constants/dashboard';
-import { PROFILE_SHORTCUTS, type ConversationAction, type ShortcutAction } from '@/constants/profiles';
-import { getMessages, listConversations } from '@/db/conversations';
+import { homeShortcuts, type ShortcutAction } from '@/constants/profiles';
+import { getMessages, listConversations, type Conversation } from '@/db/conversations';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { useBootstrap } from '@/hooks/use-bootstrap';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useScreenReader } from '@/hooks/use-screen-reader';
 import { announce } from '@/utils/a11y';
+import { keepIfSame } from '@/utils/cache';
+import { openConversationFor, openSavedConversation } from '@/utils/conversationNav';
 import { speakMixed } from '@/utils/speechHelper';
 
-function openConversation(action?: ConversationAction) {
-  router.push(
-    action
-      ? // A fresh `opened` each tap, so the same shortcut works every time.
-        { pathname: '/conversation', params: { action, opened: String(Date.now()) } }
-      : '/conversation',
-  );
+const RECENT_COUNT = 3;
+
+function formatWhen(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+/**
+ * Home, top to bottom: an SOS still going (if any); the past week's SOS,
+ * ended ones too (RecentSosCard); the greeting card, the
+ * one way into a conversation; "Start with…", real buttons that each open
+ * Conversation ready for one thing (the user's profile's own first); the
+ * Emergency SOS button; and the last few conversations.
+ */
 export default function HomeScreen() {
   const { role, firstName } = useBootstrap();
   const { prefs, setPref } = usePreferences();
@@ -37,8 +42,21 @@ export default function HomeScreen() {
   const styles = useThemedStyles(makeStyles);
   const screenReaderOn = useScreenReader();
   const [showBig, setShowBig] = useState(false);
+  const [recent, setRecent] = useState<Conversation[]>([]);
   const greeting = firstName ? `Hello, ${firstName}!` : 'Hello!';
-  const shortcuts = PROFILE_SHORTCUTS[prefs.profile];
+  const shortcuts = homeShortcuts(prefs.profile);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void listConversations().then(
+        (rows) => !cancelled && setRecent((current) => keepIfSame(current, rows.slice(0, RECENT_COUNT))),
+      );
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   // Reads the newest message saved on this phone — handy after putting the
   // phone down mid-conversation.
@@ -59,24 +77,23 @@ export default function HomeScreen() {
   const runShortcut = (action: ShortcutAction) => {
     switch (action) {
       case 'talk':
-        return openConversation('listen');
+        return openConversationFor('listen');
       case 'captions':
-        return openConversation('captions');
+        return openConversationFor('captions');
       case 'sign':
-        return openConversation('sign');
+        return openConversationFor('sign');
       case 'show':
         return setShowBig(true);
       case 'read-last':
         return void readLastMessage();
       case 'quick-replies':
-        if (!prefs.showQuickReplies) setPref('showQuickReplies', true);
-        return openConversation();
+        return openConversationFor('replies');
       case 'type-to-speak':
         if (!prefs.speakMyMessages) {
           setPref('speakMyMessages', true);
           announce('Your messages will be spoken aloud.');
         }
-        return openConversation('type');
+        return openConversationFor('type');
     }
   };
 
@@ -87,9 +104,9 @@ export default function HomeScreen() {
           <View style={styles.headerSide}>
             <DrawerToggleButton tintColor={colors.textPrimary} accessibilityLabel="Open menu" />
           </View>
-          <View style={styles.wordmarkRow} accessible accessibilityRole="header" accessibilityLabel="PDAccessAI">
+          <View style={styles.wordmarkRow} accessible accessibilityRole="header" accessibilityLabel="AccessAI">
             <AppLogo size={28} decorative />
-            <Text style={styles.wordmark}>PDAccessAI</Text>
+            <Text style={styles.wordmark}>AccessAI</Text>
           </View>
           <IconButton
             icon="person-circle-outline"
@@ -102,96 +119,90 @@ export default function HomeScreen() {
 
         {/* An SOS that's still going (a friend's, or the user's own) comes first. */}
         <ActiveSosCards />
+        {/* Then the past week's, ended ones too: when, where, how it ended. */}
+        <RecentSosCard />
 
         <Pressable
-          style={styles.greetingCard}
-          onPress={() => openConversation()}
+          style={({ pressed }) => [styles.greetingCard, pressed && styles.pressed]}
+          onPress={() => router.push('/conversation')}
           accessibilityRole="button"
           accessibilityLabel={`${greeting} Start a conversation`}
+          accessibilityHint="Talk, type or sign with someone next to you"
         >
           <Text style={styles.greetingTitle}>{greeting}</Text>
-          <Text style={styles.greetingSubtitle}>
-            What kind of conversation do you need help with right now?
-          </Text>
-          <View style={styles.pillRow}>
-            <View style={styles.pill}>
-              <Text style={styles.pillText}>STT</Text>
-            </View>
-            <View style={styles.pill}>
-              <Text style={styles.pillText}>TTS</Text>
-            </View>
-            <View style={styles.pill}>
-              <Text style={styles.pillText}>Sign Language Recognition</Text>
-            </View>
+          <Text style={styles.greetingSubtitle}>Talk with anyone — by voice, typing or sign language.</Text>
+          <View style={styles.greetingAction}>
+            <Text style={styles.greetingActionText}>Start a conversation</Text>
+            <Ionicons name="arrow-forward" size={20} color={colors.primary} />
           </View>
         </Pressable>
 
-        {shortcuts.length > 0 ? (
+        {role !== 'non_pwd' ? <SosBanner /> : null}
+
+        <View>
+          <Text style={styles.sectionTitle} accessibilityRole="header">
+            Start with…
+          </Text>
+          <View style={styles.grid}>
+            {shortcuts.map((shortcut) => (
+              <Pressable
+                key={shortcut.action}
+                style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
+                onPress={() => runShortcut(shortcut.action)}
+                accessibilityRole="button"
+                accessibilityLabel={shortcut.title}
+                accessibilityHint={shortcut.description}
+              >
+                <View style={styles.tileIcon}>
+                  <Ionicons name={shortcut.icon} size={24} color={colors.onPrimaryLight} />
+                </View>
+                <Text style={styles.tileTitle}>{shortcut.title}</Text>
+                <Text style={styles.tileDescription}>{shortcut.description}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        {recent.length ? (
           <View>
-            <Text style={[styles.sectionTitle, styles.forYouTitle]} accessibilityRole="header">
-              For you
-            </Text>
-            <View style={styles.shortcutRow}>
-              {shortcuts.map((shortcut) => (
+            <View style={styles.sectionRow}>
+              <Text style={[styles.sectionTitle, styles.flex]} accessibilityRole="header">
+                Recent conversations
+              </Text>
+              <Pressable
+                style={styles.seeAll}
+                onPress={() => router.push('/chats' as Href)}
+                accessibilityRole="button"
+                accessibilityLabel="See all conversations"
+              >
+                <Text style={styles.seeAllText}>See all</Text>
+              </Pressable>
+            </View>
+            <View style={styles.recentCard}>
+              {recent.map((conversation, index) => (
                 <Pressable
-                  key={shortcut.action}
-                  style={({ pressed }) => [styles.shortcut, pressed && styles.pressed]}
-                  onPress={() => runShortcut(shortcut.action)}
+                  key={conversation.id}
+                  style={({ pressed }) => [styles.recentRow, index > 0 && styles.recentDivider, pressed && styles.pressed]}
+                  onPress={() => openSavedConversation(conversation.id)}
                   accessibilityRole="button"
-                  accessibilityLabel={`${shortcut.title}. ${shortcut.description}`}
+                  accessibilityLabel={`${conversation.title}. ${formatWhen(conversation.updatedAt)}`}
+                  accessibilityHint="Opens the conversation"
                 >
-                  <View style={styles.shortcutIcon}>
-                    <Ionicons name={shortcut.icon} size={24} color={colors.onPrimaryLight} />
+                  <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.primary} />
+                  <View style={styles.flex}>
+                    <Text style={styles.recentTitle} numberOfLines={1}>
+                      {conversation.title}
+                    </Text>
+                    <Text style={styles.recentWhen}>{formatWhen(conversation.updatedAt)}</Text>
                   </View>
-                  <Text style={styles.shortcutTitle}>{shortcut.title}</Text>
-                  <Text style={styles.shortcutDescription}>{shortcut.description}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                 </Pressable>
               ))}
             </View>
           </View>
         ) : null}
-
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle} accessibilityRole="header">
-            Core AI Features
-          </Text>
-          <Text style={styles.sectionHint}>available in every conversation</Text>
-        </View>
-        <View style={styles.grid}>
-          {DASHBOARD_FEATURES.map((feature) => (
-            <FeatureTile
-              key={feature.id}
-              icon={feature.icon}
-              title={feature.title}
-              description={feature.description}
-            />
-          ))}
-        </View>
-
-        {/* SOS is for PWD accounts only (the backend refuses it for non-PWD
-            too). Hidden only when the role is known to be non-PWD: if it's
-            ever unknown, an emergency button shouldn't silently vanish. */}
-        {role !== 'non_pwd' ? <SosBanner /> : null}
-
-        <TouchableOpacity
-          style={styles.aiBanner}
-          onPress={() => openConversation()}
-          accessibilityRole="button"
-          accessibilityLabel="Start AI Conversation Mode. Speech to text, text to speech and sign language combined."
-          activeOpacity={0.85}
-        >
-          <View style={styles.aiBannerIcon}>
-            <Ionicons name="sync-outline" size={20} color={colors.onBanner} />
-          </View>
-          <View style={styles.aiBannerText}>
-            <Text style={styles.aiBannerTitle}>AI Conversation Mode</Text>
-            <Text style={styles.aiBannerSubtitle}>
-              STT + TTS + Sign Language combined — talk both ways, seamlessly.
-            </Text>
-          </View>
-          <Ionicons name="arrow-forward" size={20} color={colors.onBanner} />
-        </TouchableOpacity>
       </ScrollView>
+
       <BigTextCard visible={showBig} onClose={() => setShowBig(false)} />
     </ScreenShell>
   );
@@ -204,6 +215,9 @@ const makeStyles = (t: AppTheme) =>
       paddingTop: Spacing.three,
       paddingBottom: Spacing.six,
       gap: Spacing.four,
+    },
+    flex: {
+      flex: 1,
     },
     header: {
       flexDirection: 'row',
@@ -231,77 +245,71 @@ const makeStyles = (t: AppTheme) =>
       padding: Spacing.four,
     },
     greetingTitle: {
-      fontSize: t.font(22),
+      fontSize: t.font(24),
       fontWeight: t.weight('800'),
       color: t.colors.onPrimary,
     },
     greetingSubtitle: {
-      fontSize: t.font(13),
+      fontSize: t.font(15),
       color: t.colors.onPrimary,
-      opacity: 0.92,
       marginTop: 6,
-      lineHeight: t.lineHeight(18),
+      lineHeight: t.lineHeight(21),
     },
-    pillRow: {
+    greetingAction: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'center',
       gap: 8,
-      marginTop: 14,
+      alignSelf: 'flex-start',
+      marginTop: Spacing.three,
+      minHeight: 48,
+      paddingHorizontal: 20,
+      borderRadius: 24,
+      backgroundColor: t.colors.surface,
     },
-    pill: {
-      borderWidth: 1,
-      borderColor: t.colors.onPrimary,
-      borderRadius: 999,
-      paddingVertical: 4,
-      paddingHorizontal: 10,
-    },
-    pillText: {
-      color: t.colors.onPrimary,
-      fontSize: t.font(11),
-      fontWeight: t.weight('700'),
-    },
-    sectionHeaderRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      alignItems: 'baseline',
-      justifyContent: 'space-between',
-      gap: 4,
-      marginTop: Spacing.two,
+    greetingActionText: {
+      fontSize: t.font(16),
+      fontWeight: t.weight('800'),
+      color: t.colors.primary,
     },
     sectionTitle: {
-      fontSize: t.font(15),
+      fontSize: t.font(17),
       fontWeight: t.weight('800'),
       color: t.colors.textPrimary,
+      marginBottom: 10,
     },
-    sectionHint: {
-      fontSize: t.font(12),
-      color: t.colors.textMuted,
+    sectionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    seeAll: {
+      minHeight: 44,
+      minWidth: 44,
+      paddingHorizontal: 8,
+      justifyContent: 'center',
+      marginBottom: 10,
+    },
+    seeAllText: {
+      fontSize: t.font(15),
+      fontWeight: t.weight('700'),
+      color: t.colors.primary,
     },
     grid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: 12,
     },
-    forYouTitle: {
-      marginBottom: 10,
-    },
-    shortcutRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 12,
-    },
-    shortcut: {
-      flexBasis: '30%',
+    tile: {
+      flexBasis: '45%',
       flexGrow: 1,
-      minWidth: 140,
-      minHeight: 112,
+      minHeight: 120,
       padding: 14,
       borderRadius: 16,
-      borderWidth: 2,
-      borderColor: t.colors.primary,
+      borderWidth: 1,
+      borderColor: t.colors.border,
       backgroundColor: t.colors.surface,
     },
-    shortcutIcon: {
+    tileIcon: {
       width: 44,
       height: 44,
       borderRadius: 12,
@@ -310,52 +318,47 @@ const makeStyles = (t: AppTheme) =>
       justifyContent: 'center',
       marginBottom: 10,
     },
-    shortcutTitle: {
+    tileTitle: {
       fontSize: t.font(16),
       fontWeight: t.weight('800'),
       color: t.colors.textPrimary,
     },
-    shortcutDescription: {
+    tileDescription: {
       marginTop: 2,
       fontSize: t.font(13),
       lineHeight: t.lineHeight(18),
       color: t.colors.textSecondary,
     },
-    pressed: {
-      opacity: 0.75,
+    recentCard: {
+      borderWidth: 1,
+      borderColor: t.colors.border,
+      borderRadius: 14,
+      backgroundColor: t.colors.surface,
+      overflow: 'hidden',
     },
-    aiBanner: {
+    recentRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: t.colors.banner,
-      borderRadius: 16,
-      padding: 14,
-      minHeight: 56,
+      gap: 12,
+      minHeight: 60,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
     },
-    aiBannerIcon: {
-      width: 36,
-      height: 36,
-      borderRadius: 10,
-      borderWidth: 1,
-      borderColor: t.colors.onBanner,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: 12,
+    recentDivider: {
+      borderTopWidth: 1,
+      borderTopColor: t.colors.border,
     },
-    aiBannerText: {
-      flex: 1,
-      marginRight: 10,
+    recentTitle: {
+      fontSize: t.font(15),
+      fontWeight: t.weight('700'),
+      color: t.colors.textPrimary,
     },
-    aiBannerTitle: {
-      fontSize: t.font(14),
-      fontWeight: t.weight('800'),
-      color: t.colors.onBanner,
-      marginBottom: 2,
+    recentWhen: {
+      marginTop: 2,
+      fontSize: t.font(12),
+      color: t.colors.textMuted,
     },
-    aiBannerSubtitle: {
-      fontSize: t.font(11),
-      color: t.colors.onBanner,
-      opacity: 0.9,
-      lineHeight: t.lineHeight(15),
+    pressed: {
+      opacity: 0.75,
     },
   });

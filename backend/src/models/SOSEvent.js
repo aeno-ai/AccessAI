@@ -6,11 +6,17 @@ const point = {
 };
 
 const sosEventSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   status: { type: String, enum: ['active', 'resolved'], default: 'active' },
   triggerMethod: { type: String, required: true }, // deliberately NOT an enum — see reasoning above
-  // Where the SOS was sent from.
-  location: point,
+  // Where the SOS was sent from, and how exact the phone's GPS was (meters).
+  location: {
+    ...point,
+    accuracy: { type: Number, min: 0 },
+  },
+  // When the person actually pressed SOS — earlier than createdAt when it
+  // was made offline and sent once the phone was back online.
+  occurredAt: { type: Date },
   // The newest position the sender's phone shared since (it keeps sharing
   // for 30 minutes while AccessAI is open) — what friends' "Open map" uses.
   lastLocation: {
@@ -30,7 +36,7 @@ const sosEventSchema = new mongoose.Schema({
   // Live location is accepted until this time (real SOS only).
   shareUntil: { type: Date },
   // Still shown as active to friends until this time, unless resolved first.
-  expiresAt: { type: Date, index: true },
+  expiresAt: { type: Date },
   resolvedAt: { type: Date },
   // 'safe' = the sender said so; 'expired' = nobody resolved it in time;
   // 'replaced' = the sender sent a new SOS.
@@ -48,5 +54,9 @@ const sosEventSchema = new mongoose.Schema({
 
 // "Active SOS from my friends": the events I was alerted about.
 sosEventSchema.index({ recipients: 1, status: 1, createdAt: -1 });
+// "My active SOS", newest first — read in index order, no sorting.
+sosEventSchema.index({ userId: 1, status: 1, createdAt: -1 });
+// The expiry job: only the active ones that are past their time.
+sosEventSchema.index({ status: 1, expiresAt: 1 });
 
 module.exports = mongoose.model('SOSEvent', sosEventSchema);

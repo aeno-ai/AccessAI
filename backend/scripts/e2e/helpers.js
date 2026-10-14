@@ -73,7 +73,12 @@ async function api(method, route, token, body) {
   } catch {
     data = { notJson: text.slice(0, 80) };
   }
-  return { status: response.status, data, json: (response.headers.get('content-type') ?? '').includes('json') };
+  return {
+    status: response.status,
+    data,
+    json: (response.headers.get('content-type') ?? '').includes('json'),
+    headers: response.headers,
+  };
 }
 
 // A live socket like the app's, collecting every event it receives.

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
@@ -37,33 +37,24 @@ export function MessageBubble({ body, sender, createdAt, senderName, status, onS
   const { colors } = useAppTheme();
   const styles = useThemedStyles(makeStyles);
   const [speaking, setSpeaking] = useState(false);
-  const speakingRef = useRef(false);
+  // This bubble's own reading: stopping it never cuts off anything else.
+  const voice = `bubble:${useId()}`;
   const isMe = sender === 'me';
 
   // If the bubble unmounts (e.g. leaving the screen) while still reading
   // aloud, stop rather than leaving speech running in the background.
-  useEffect(() => {
-    return () => {
-      if (speakingRef.current) {
-        stopMixed();
-      }
-    };
-  }, []);
+  useEffect(() => () => stopMixed({ owner: voice }), [voice]);
 
+  // While reading, the button is "Stop". Another reading starting (another
+  // bubble, a new message read aloud) ends this one, and the button comes back.
   const toggleSpeak = () => {
     if (speaking) {
-      stopMixed();
-      speakingRef.current = false;
+      stopMixed({ owner: voice });
       setSpeaking(false);
       return;
     }
-    speakingRef.current = true;
     setSpeaking(true);
-    const done = () => {
-      speakingRef.current = false;
-      setSpeaking(false);
-    };
-    void speakMixed(body, { rate: prefs.speechRate, onDone: done, onError: done });
+    void speakMixed(body, { rate: prefs.speechRate, owner: voice, onEnd: () => setSpeaking(false) });
   };
 
   const time = formatTime(createdAt);

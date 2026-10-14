@@ -29,7 +29,7 @@ const interpretValidators = [
 // turns sign-language words ("ME GO STORE TOMORROW") into a sentence.
 const polishValidators = [
   spokenText('text', 500),
-  body('kind').isString().withMessage(GENERIC).bail().isIn(['message', 'gloss']).withMessage(GENERIC),
+  body('kind').isString().withMessage(GENERIC).bail().isIn(['message', 'gloss', 'spell']).withMessage(GENERIC),
   body('language').optional().isString().withMessage(GENERIC).bail().isIn(['en', 'fil', 'fsl', 'asl', 'auto']).withMessage(GENERIC),
 ];
 

@@ -1,7 +1,8 @@
 // Roles for people who use the web admin panel. These are completely
 // separate from User.role ('pwd' / 'non_pwd'), which describes what kind of
 // app user someone is — not what they're allowed to do.
-const ADMIN_ROLES = ['super_admin', 'admin', 'viewer'];
+// Two roles only (the read-only "viewer" was removed on 2026-10-12).
+const ADMIN_ROLES = ['super_admin', 'admin'];
 
 const PERMISSIONS = {
   USERS_READ: 'users:read',
@@ -14,7 +15,6 @@ const PERMISSIONS = {
 // permission (never a role name), so changing what a role can do only ever
 // means editing this map.
 const ROLE_PERMISSIONS = {
-  viewer: [PERMISSIONS.USERS_READ],
   admin: [PERMISSIONS.USERS_READ, PERMISSIONS.USERS_UPDATE],
   super_admin: [
     PERMISSIONS.USERS_READ,

@@ -591,11 +591,6 @@ td select {
   color: var(--color-primary-dark);
 }
 
-.badge-role-viewer {
-  background: #eef0f3;
-  color: var(--color-text);
-}
-
 .role-legend {
   list-style: none;
   margin: 1rem 0 0;

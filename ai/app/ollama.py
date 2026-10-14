@@ -3,6 +3,7 @@
 Ollama runs the AI models on this computer. Start it with `ollama serve`
 (or the Ollama app). Everything here talks to it over plain HTTP.
 """
+import asyncio
 import json
 
 import httpx
@@ -14,25 +15,56 @@ class OllamaDown(Exception):
     """Ollama isn't running, or didn't answer in time."""
 
 
-def _client(timeout=60.0):
-    return httpx.AsyncClient(base_url=config.OLLAMA_URL, timeout=timeout)
+class OllamaBusy(OllamaDown):
+    """Both slots are in use (see _slots): answered at once instead of queueing."""
+
+
+# One HTTP client for the whole service, made on first use: it keeps its
+# connections to Ollama open instead of opening a new one for every call.
+# Each call still sets its own timeout. Closed when the service stops.
+_shared = None
+
+
+def _client():
+    global _shared
+    if _shared is None:
+        _shared = httpx.AsyncClient(base_url=config.OLLAMA_URL, timeout=60.0)
+    return _shared
+
+
+async def close():
+    global _shared
+    if _shared is not None:
+        await _shared.aclose()
+        _shared = None
+
+
+# Ollama works through one request at a time; more just wait in its queue.
+# At most 2 of ours at once (one running, one next). A third is refused
+# straight away, so the person's phone falls back to its own rules instead
+# of waiting.
+_slots = asyncio.Semaphore(2)
+
+
+def _take_slot():
+    if _slots.locked():
+        raise OllamaBusy("busy")
+    return _slots
 
 
 async def version():
     try:
-        async with _client(3) as client:
-            response = await client.get("/api/version")
-            response.raise_for_status()
-            return response.json().get("version")
+        response = await _client().get("/api/version", timeout=3)
+        response.raise_for_status()
+        return response.json().get("version")
     except httpx.HTTPError as error:
         raise OllamaDown(str(error)) from error
 
 
 async def installed_models():
-    async with _client(5) as client:
-        response = await client.get("/api/tags")
-        response.raise_for_status()
-        return {model["name"] for model in response.json().get("models", [])}
+    response = await _client().get("/api/tags", timeout=5)
+    response.raise_for_status()
+    return {model["name"] for model in response.json().get("models", [])}
 
 
 def _same_model(wanted, installed):
@@ -44,21 +76,20 @@ async def pull(model, log):
     """Downloads a model, printing progress every 10%."""
     log(f"Downloading {model} (first time only)…")
     last_step = -1
-    async with _client(None) as client:
-        async with client.stream("POST", "/api/pull", json={"model": model, "stream": True}) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line:
-                    continue
-                status = json.loads(line)
-                if status.get("error"):
-                    raise RuntimeError(status["error"])
-                total, done = status.get("total"), status.get("completed")
-                if total and done:
-                    step = int(done / total * 10)
-                    if step != last_step:
-                        last_step = step
-                        log(f"  {model}: {step * 10}%")
+    async with _client().stream("POST", "/api/pull", json={"model": model, "stream": True}, timeout=None) as response:
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if not line:
+                continue
+            status = json.loads(line)
+            if status.get("error"):
+                raise RuntimeError(status["error"])
+            total, done = status.get("total"), status.get("completed")
+            if total and done:
+                step = int(done / total * 10)
+                if step != last_step:
+                    last_step = step
+                    log(f"  {model}: {step * 10}%")
     log(f"{model} is ready.")
 
 
@@ -72,10 +103,11 @@ async def ensure_models(models, log):
 async def embed(texts):
     """Sentences → embeddings (one list of numbers per sentence)."""
     try:
-        async with _client(60) as client:
-            response = await client.post(
+        async with _take_slot():
+            response = await _client().post(
                 "/api/embed",
                 json={"model": config.EMBED_MODEL, "input": texts, "keep_alive": config.KEEP_ALIVE},
+                timeout=60,
             )
             response.raise_for_status()
             return response.json()["embeddings"]
@@ -88,8 +120,8 @@ async def chat_json(system, user, schema, max_tokens=160, timeout=30.0):
     schema). Ollama only lets the model produce text that fits the schema —
     e.g. an `enum` means it literally cannot answer anything outside it."""
     try:
-        async with _client(timeout) as client:
-            response = await client.post(
+        async with _take_slot():
+            response = await _client().post(
                 "/api/chat",
                 json={
                     "model": config.CHAT_MODEL,
@@ -99,6 +131,7 @@ async def chat_json(system, user, schema, max_tokens=160, timeout=30.0):
                     "keep_alive": config.KEEP_ALIVE,
                     "options": {"temperature": 0, "num_predict": max_tokens},
                 },
+                timeout=timeout,
             )
             response.raise_for_status()
             return json.loads(response.json()["message"]["content"])

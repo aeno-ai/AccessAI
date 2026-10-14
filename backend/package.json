@@ -10,8 +10,10 @@
     "start": "node src/server.js",
     "ai": "node scripts/startAi.js",
     "e2e": "node scripts/e2e/run.js",
+    "rate-check": "node scripts/tokenBucketCheck.js",
     "test-push": "node scripts/testPush.js",
-    "create-admin": "node scripts/createAdmin.js"
+    "create-admin": "node scripts/createAdmin.js",
+    "sos-demo": "node scripts/sosDemo.js"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +21,7 @@
   "type": "commonjs",
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "compression": "^1.8.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

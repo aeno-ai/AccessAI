@@ -5,9 +5,9 @@ import { syncConversations } from '@/db/sync';
 /**
  * Watches for the device coming back online and kicks off a best-effort
  * conversation sync when it does. Mounted once, near the app root, so a
- * reconnect anywhere in the app (not just while History is open) gets
- * picked up. History also syncs on its own when it gains focus (see
- * history.tsx), so this is a proactive extra, not the only trigger.
+ * reconnect anywhere in the app (not just while Chats is open) gets
+ * picked up. Chats also syncs on its own when it gains focus (see
+ * chats.tsx), so this is a proactive extra, not the only trigger.
  */
 export function useConnectivitySync() {
   const wasOnline = useRef<boolean | null>(null);

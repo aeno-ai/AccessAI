@@ -40,16 +40,18 @@ function spokenLabel(friend: Friend): string {
  * offline too.
  */
 export default function FriendsScreen() {
-  const { friends, requests, refresh, connected } = useFriends();
+  const { friends, requests, refresh, refreshIfStale, connected } = useFriends();
   const { colors } = useAppTheme();
   const styles = useThemedStyles(makeStyles);
   const online = useIsOnline();
   const [refreshing, setRefreshing] = useState(false);
 
+  // Shows the friends already on the phone at once; asks the server only if
+  // its last answer is over 30 s old (live updates cover the time between).
   useFocusEffect(
     useCallback(() => {
-      void refresh();
-    }, [refresh]),
+      void refreshIfStale();
+    }, [refreshIfStale]),
   );
 
   const pullToRefresh = async () => {

@@ -1,4 +1,4 @@
-const { body } = require('express-validator');
+const { body, query } = require('express-validator');
 
 // Same password rule the controller used to enforce by hand — now declared
 // once, up front, before the request ever reaches register(). A function of
@@ -21,14 +21,17 @@ const passwordRules = strongPassword('password');
 // normalizeEmail() is what every lookup relies on: an email is always
 // stored and searched for in this one form. utils/googleOAuth.js
 // normalizes Google's emails with the same function.
-const emailRules = body('email')
-  .isString()
-  .withMessage('Email is required')
-  .bail()
-  .trim()
-  .isEmail()
-  .withMessage('A valid email is required')
-  .normalizeEmail();
+const emailField = (field) =>
+  body(field)
+    .isString()
+    .withMessage('Email is required')
+    .bail()
+    .trim()
+    .isEmail()
+    .withMessage('A valid email is required')
+    .normalizeEmail();
+
+const emailRules = emailField('email');
 
 // The 6-digit codes from utils/emailCodes.js.
 const codeRules = (field = 'code') =>
@@ -84,9 +87,17 @@ const loginValidators = [
 // and "Forgot password".
 const emailOnlyValidators = [emailRules];
 
+// GET /auth/code-status: did the code for sign-up / "Forgot password" go out?
+const codeStatusValidators = [
+  query('email').isString().withMessage('A valid email is required').bail().trim().isEmail().withMessage('A valid email is required').normalizeEmail(),
+  query('purpose').isIn(['verify_email', 'reset_password']).withMessage("That request wasn't valid."),
+];
+
 const verifyEmailValidators = [emailRules, codeRules()];
 
-const resetPasswordValidators = [emailRules, codeRules(), passwordRules];
+// "Forgot password": the code on its own page, then the new password with
+// the ticket that page received.
+const verifyResetCodeValidators = [emailRules, codeRules()];
 
 // Asking to delete an account needs the password again (or, for accounts
 // with no password, an emailed code), so a phone left unlocked can't be
@@ -100,8 +111,10 @@ const deleteAccountValidators = [
 // The signed tickets "Continue with Google" passes around (see
 // controllers/googleAuthController.js). Their contents are checked by
 // verifyTicket; this only makes sure it's a string.
-const ticketRules = (field) =>
-  body(field).isString().withMessage('Your Google sign-in has expired. Please continue with Google again.');
+const ticketRules = (field, message = 'Your Google sign-in has expired. Please continue with Google again.') =>
+  body(field).isString().withMessage(message);
+
+const resetPasswordValidators = [ticketRules('resetTicket', 'This code has expired. Please ask for a new one.'), passwordRules];
 
 const googleExchangeValidators = [ticketRules('ticket')];
 
@@ -124,16 +137,38 @@ const updateMeValidators = [
     .withMessage('The note can be up to 80 characters'),
 ];
 
+// "Change password" in Edit profile: the current password, or (accounts
+// with no password yet) an emailed code — the controller checks which.
+const changePasswordValidators = [
+  body('currentPassword').optional().isString().withMessage('Enter your current password'),
+  codeRules().optional(),
+  strongPassword('newPassword'),
+];
+
+// "Change email": the new address (plus the password, for accounts that
+// have one), then the code sent to that address.
+const emailChangeCodeValidators = [
+  emailField('newEmail'),
+  body('password').optional().isString().withMessage('Enter your password'),
+];
+
+const changeEmailValidators = [codeRules()];
+
 module.exports = {
   registerValidators,
   loginValidators,
   emailOnlyValidators,
+  codeStatusValidators,
   verifyEmailValidators,
+  verifyResetCodeValidators,
   resetPasswordValidators,
   deleteAccountValidators,
   googleExchangeValidators,
   googleCompleteValidators,
   googleRestoreValidators,
   updateMeValidators,
+  changePasswordValidators,
+  emailChangeCodeValidators,
+  changeEmailValidators,
   strongPassword,
 };
