@@ -28,7 +28,9 @@ type LoginResponse = {
 export default function LoginScreen() {
   const styles = useThemedStyles(makeStyles);
 
-  const { signIn } = useBootstrap();
+  // signOutNotice: why the app was just signed out (an admin paused the
+  // account, or is deleting it).
+  const { signIn, signOutNotice } = useBootstrap();
   // Set when coming back from "Forgot password", so only the new password
   // needs typing.
   const params = useLocalSearchParams<{ email?: string }>();
@@ -124,6 +126,11 @@ export default function LoginScreen() {
             <Text style={styles.title}>Welcome back</Text>
             <Text style={styles.subtitle}>Log in to continue with AccessAI</Text>
           </View>
+          {signOutNotice ? (
+            <View style={styles.notice} accessibilityRole="alert" accessibilityLiveRegion="polite">
+              <Text style={styles.noticeText}>{signOutNotice}</Text>
+            </View>
+          ) : null}
           <AuthInput
             label="Email Address"
             placeholder="Enter your email"
@@ -217,6 +224,19 @@ const makeStyles = (t: AppTheme) =>
       justifyContent: 'center',
       marginTop: -8,
       marginBottom: 8,
+    },
+    notice: {
+      borderWidth: 1,
+      borderColor: t.colors.dangerText,
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 20,
+    },
+    noticeText: {
+      color: t.colors.dangerText,
+      fontSize: t.font(15),
+      fontWeight: t.weight('600'),
+      textAlign: 'center',
     },
     errorText: {
       color: t.colors.dangerText,

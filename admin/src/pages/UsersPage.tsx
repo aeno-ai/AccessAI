@@ -3,7 +3,8 @@ import { Link, useSearchParams } from 'react-router';
 import { apiFetch, errorMessage } from '../api/client';
 import { useAuth } from '../auth/auth-context';
 import { PageLoader } from '../components/PageLoader';
-import { UserStatusDialog } from '../components/UserStatusDialog';
+import { UserActionDialog } from '../components/UserActionDialog';
+import { UserStatusBadge } from '../components/UserStatusBadge';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import type { AppUser, UserListResponse } from '../types';
 import { formatDate, USER_TYPE_LABELS } from '../utils/format';
@@ -78,7 +79,7 @@ export default function UsersPage() {
     setData((current) =>
       current ? { ...current, users: current.users.map((u) => (u.id === updated.id ? updated : u)) } : current,
     );
-    setNotice(`${updated.name} has been ${updated.isActive ? 'reactivated' : 'deactivated'}.`);
+    setNotice(`${updated.name} has been reactivated.`);
   };
 
   return (
@@ -110,7 +111,9 @@ export default function UsersPage() {
           <select id="user-status" value={status} onChange={(event) => updateParams({ status: event.target.value })}>
             <option value="">All</option>
             <option value="active">Active</option>
-            <option value="inactive">Deactivated</option>
+            <option value="suspended">Suspended</option>
+            <option value="deleting">Being deleted</option>
+            <option value="deactivated">Deactivated (old)</option>
           </select>
         </div>
         <button type="submit" className="btn btn-primary">
@@ -165,21 +168,22 @@ export default function UsersPage() {
                       <td>{user.email}</td>
                       <td>{USER_TYPE_LABELS[user.role]}</td>
                       <td>
-                        <span className={`badge ${user.isActive ? 'badge-success' : 'badge-danger'}`}>
-                          {user.isActive ? 'Active' : 'Deactivated'}
-                        </span>
+                        <UserStatusBadge status={user.status} />
                       </td>
                       <td>{formatDate(user.createdAt)}</td>
                       {canUpdate ? (
                         <td className="cell-actions">
-                          <button
-                            type="button"
-                            className={`btn btn-small ${user.isActive ? 'btn-danger-outline' : 'btn-secondary'}`}
-                            onClick={() => setPendingUser(user)}
-                            aria-label={`${user.isActive ? 'Deactivate' : 'Reactivate'} ${user.name}`}
-                          >
-                            {user.isActive ? 'Deactivate' : 'Reactivate'}
-                          </button>
+                          {/* Suspend and Delete in 30 days are on the person's page. */}
+                          {user.status === 'deactivated' ? (
+                            <button
+                              type="button"
+                              className="btn btn-small btn-secondary"
+                              onClick={() => setPendingUser(user)}
+                              aria-label={`Reactivate ${user.name}`}
+                            >
+                              Reactivate
+                            </button>
+                          ) : null}
                         </td>
                       ) : null}
                     </tr>
@@ -214,7 +218,12 @@ export default function UsersPage() {
       ) : null}
 
       {pendingUser ? (
-        <UserStatusDialog user={pendingUser} onDone={handleStatusChanged} onCancel={() => setPendingUser(null)} />
+        <UserActionDialog
+          user={pendingUser}
+          action="reactivate"
+          onDone={handleStatusChanged}
+          onCancel={() => setPendingUser(null)}
+        />
       ) : null}
     </section>
   );

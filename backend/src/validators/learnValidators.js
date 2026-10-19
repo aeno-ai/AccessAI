@@ -16,7 +16,8 @@ const syncLearnValidators = [
   text(body('completions.*.lessonId'), 80)
     .matches(/^(fsl|asl)-[a-z0-9-]+$/)
     .withMessage(GENERIC),
-  numberInRange('completions.*.xp', 0, 30),
+  // Only sent by app versions from before Learn stopped keeping score (2026-10-17).
+  numberInRange('completions.*.xp', 0, 30).optional(),
   numberInRange('completions.*.mistakes', 0, 50),
   numberInRange('completions.*.cameraPassed', 0, 10),
   // The phone's time in ms; not before Learn existed, not in the future.

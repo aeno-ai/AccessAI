@@ -1,4 +1,5 @@
 const User = require('../models/Users');
+const { usableFilter } = require('./accountState');
 
 // Push notifications through Expo's free push service. The phone gets an
 // "Expo push token" (an address) from expo-notifications and saves it with
@@ -12,11 +13,16 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const BATCH = 100; // Expo's limit per request
 
 async function tokensOf(userIds) {
-  // Naming the hidden field includes it, and nothing else but _id.
-  const users = await User.find({ _id: { $in: userIds } }).select('pushTokens').lean();
+  // Naming the hidden field includes it, and nothing else but _id. Only
+  // accounts that may be used now: a suspended one gets no notifications.
+  const users = await User.find({ _id: { $in: userIds }, ...usableFilter() }).select('pushTokens').lean();
   const tokens = [];
+  // One message per address, even if an old save left it listed twice.
+  const seen = new Set();
   for (const user of users) {
     for (const entry of user.pushTokens ?? []) {
+      if (seen.has(entry.token)) continue;
+      seen.add(entry.token);
       tokens.push({ userId: String(user._id), token: entry.token });
     }
   }

@@ -2,10 +2,13 @@ import { Navigate, Route, Routes } from 'react-router';
 import { RequireAuth, RequirePermission } from './auth/guards';
 import { Layout } from './components/Layout';
 import AccountPasswordPage from './pages/AccountPasswordPage';
+import ActivityPage from './pages/ActivityPage';
 import AdminsPage from './pages/AdminsPage';
 import ForcedPasswordChangePage from './pages/ForcedPasswordChangePage';
 import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
+import ReviewPage from './pages/ReviewPage';
+import SosPage from './pages/SosPage';
 import UserDetailPage from './pages/UserDetailPage';
 import UsersPage from './pages/UsersPage';
 
@@ -35,6 +38,32 @@ export default function App() {
             element={
               <RequirePermission permission="users:read">
                 <UserDetailPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="review"
+            element={
+              <RequirePermission permission="activity:read">
+                <RequirePermission permission="sos:read">
+                  <ReviewPage />
+                </RequirePermission>
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="activity"
+            element={
+              <RequirePermission permission="activity:read">
+                <ActivityPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="sos"
+            element={
+              <RequirePermission permission="sos:read">
+                <SosPage />
               </RequirePermission>
             }
           />

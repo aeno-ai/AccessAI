@@ -4,7 +4,9 @@ const { TERMS_VERSION } = require('../constants/legal');
 const { purgeUser } = require('../utils/accountDeletion');
 const { signTicket, verifyTicket } = require('../utils/authTickets');
 const google = require('../utils/googleOAuth');
-const { DEACTIVATED, signUserToken, isDeletionDue } = require('../utils/userSession');
+const { signUserToken, isDeletionDue } = require('../utils/userSession');
+const { refusalFor } = require('../utils/accountState');
+const { recordUserActivity } = require('../utils/activityLog');
 
 // How "Continue with Google" works:
 //
@@ -147,25 +149,31 @@ const googleExchange = async (req, res, next) => {
       }
     }
 
-    if (user && user.isActive === false) {
-      return res.status(403).json(DEACTIVATED);
+    // Past its date (the person's own deletion or an admin's): erased now,
+    // so they carry on as someone new.
+    if (user && isDeletionDue(user)) {
+      await purgeUser(user._id);
+      user = null;
+    }
+
+    // Deactivated, suspended or being deleted by an admin — the same answers
+    // as a password login. An admin's deletion never gets a restore ticket.
+    const refusal = user && refusalFor(user);
+    if (refusal) {
+      recordUserActivity(req, { userId: user._id, type: 'login.refused', method: 'google', reason: refusal.body.code });
+      return res.status(refusal.status).json(refusal.body);
     }
 
     if (user && user.deletionScheduledFor) {
-      if (isDeletionDue(user)) {
-        // Erased now, so they carry on as someone new.
-        await purgeUser(user._id);
-        user = null;
-      } else {
-        // Same prompt as a password login. The restore ticket stands in for
-        // the password that /restore would ask for.
-        return res.status(403).json({
-          code: 'ACCOUNT_PENDING_DELETION',
-          message: 'This account is scheduled for deletion.',
-          deletionScheduledFor: user.deletionScheduledFor,
-          restoreTicket: signTicket('google_restore', { userId: user._id.toString() }, '15m'),
-        });
-      }
+      // Same prompt as a password login. The restore ticket stands in for
+      // the password that /restore would ask for.
+      recordUserActivity(req, { userId: user._id, type: 'login.refused', method: 'google', reason: 'ACCOUNT_PENDING_DELETION' });
+      return res.status(403).json({
+        code: 'ACCOUNT_PENDING_DELETION',
+        message: 'This account is scheduled for deletion.',
+        deletionScheduledFor: user.deletionScheduledFor,
+        restoreTicket: signTicket('google_restore', { userId: user._id.toString() }, '15m'),
+      });
     }
 
     if (!user) {
@@ -179,6 +187,7 @@ const googleExchange = async (req, res, next) => {
       });
     }
 
+    recordUserActivity(req, { userId: user._id, type: 'login.success', method: 'google' });
     res.json({ token: signUserToken(user) });
   } catch (error) {
     next(error);
@@ -207,6 +216,7 @@ const googleComplete = async (req, res, next) => {
       termsVersion: TERMS_VERSION,
       ...(role === 'pwd' ? { pwdDeclaredAt: now } : {}),
     });
+    recordUserActivity(req, { userId: user._id, type: 'signup', method: 'google' });
 
     res.status(201).json({ message: 'User created', userId: user._id, token: signUserToken(user) });
   } catch (error) {
@@ -226,7 +236,9 @@ const googleComplete = async (req, res, next) => {
 };
 
 // /restore for an account signed into with Google: the ticket from
-// googleExchange stands in for the password.
+// googleExchange stands in for the password. Only the person's own
+// deletion: googleExchange never hands out a ticket for an admin's, and
+// it's refused here too in case one was made before the admin acted.
 const googleRestore = async (req, res, next) => {
   try {
     const ticket = verifyTicket(req.body.restoreTicket, 'google_restore');
@@ -235,20 +247,23 @@ const googleRestore = async (req, res, next) => {
     const user = await User.findById(ticket.userId);
     if (!user) return res.status(404).json({ message: 'This account no longer exists' });
 
-    if (user.isActive === false) {
-      return res.status(403).json(DEACTIVATED);
+    if (isDeletionDue(user)) {
+      await purgeUser(user._id);
+      return res.status(404).json({ message: 'This account no longer exists' });
+    }
+
+    const refusal = refusalFor(user);
+    if (refusal) {
+      recordUserActivity(req, { userId: user._id, type: 'login.refused', method: 'google', reason: refusal.body.code });
+      return res.status(refusal.status).json(refusal.body);
     }
 
     if (!user.deletionScheduledFor) {
       return res.status(400).json({ message: 'This account is not scheduled for deletion' });
     }
 
-    if (isDeletionDue(user)) {
-      await purgeUser(user._id);
-      return res.status(404).json({ message: 'This account no longer exists' });
-    }
-
-    await User.updateOne({ _id: user._id }, { $unset: { deletionScheduledFor: 1 } });
+    await User.updateOne({ _id: user._id }, { $unset: { deletionScheduledFor: 1, deletionBy: 1 } });
+    recordUserActivity(req, { userId: user._id, type: 'deletion.cancelled', method: 'google' });
     res.json({ message: 'Account restored', token: signUserToken(user) });
   } catch (error) {
     next(error);

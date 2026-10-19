@@ -26,7 +26,7 @@ export const PROFILE_LABELS: Record<AccessibilityProfile, { title: string; descr
   none: { title: 'No specific needs', description: 'Standard settings.' },
   'blind-low-vision': {
     title: 'Blind / Low vision',
-    description: 'Accel, the voice assistant, is on. Larger, high-contrast text. New messages are read aloud. Shake to send SOS.',
+    description: 'Laya, the voice assistant, is on. Larger, high-contrast text. New messages are read aloud. Shake to send SOS.',
   },
   'deaf-hoh': {
     title: 'Deaf / Hard of hearing',
@@ -40,9 +40,9 @@ export const PROFILE_LABELS: Record<AccessibilityProfile, { title: string; descr
 
 /**
  * The settings each profile turns on or off when it's applied. Every profile
- * says what Accel (the voice assistant) does: on for Blind / low vision, off
+ * says what Laya (the voice assistant) does: on for Blind / low vision, off
  * for the others — so switching away from Blind turns it off. It's only the
- * starting point: Settings → Accel turns it back on for anyone.
+ * starting point: Settings → Laya turns it back on for anyone.
  */
 export const PROFILE_PRESETS: Record<AccessibilityProfile, Partial<Preferences>> = {
   none: {
@@ -55,8 +55,8 @@ export const PROFILE_PRESETS: Record<AccessibilityProfile, Partial<Preferences>>
     flashAlerts: false,
     vibrateAlerts: true,
     shakeToSos: false,
-    accelEnabled: false,
-    accelWakeWord: false,
+    layaEnabled: false,
+    layaWakeWord: false,
   },
   'blind-low-vision': {
     textScale: 1.3,
@@ -68,8 +68,8 @@ export const PROFILE_PRESETS: Record<AccessibilityProfile, Partial<Preferences>>
     flashAlerts: false,
     vibrateAlerts: true,
     shakeToSos: true,
-    accelEnabled: true,
-    accelWakeWord: true,
+    layaEnabled: true,
+    layaWakeWord: true,
   },
   'deaf-hoh': {
     textScale: 1.15,
@@ -81,8 +81,8 @@ export const PROFILE_PRESETS: Record<AccessibilityProfile, Partial<Preferences>>
     flashAlerts: true,
     vibrateAlerts: true,
     shakeToSos: false,
-    accelEnabled: false,
-    accelWakeWord: false,
+    layaEnabled: false,
+    layaWakeWord: false,
   },
   'mute-speech': {
     textScale: 1,
@@ -94,8 +94,8 @@ export const PROFILE_PRESETS: Record<AccessibilityProfile, Partial<Preferences>>
     flashAlerts: false,
     vibrateAlerts: true,
     shakeToSos: false,
-    accelEnabled: false,
-    accelWakeWord: false,
+    layaEnabled: false,
+    layaWakeWord: false,
   },
 };
 
@@ -141,22 +141,23 @@ export function quickRepliesAfterSwitch(replies: string[], from: AccessibilityPr
 }
 
 /**
- * What the Conversation screen does as soon as a shortcut opens it:
- * listen = mic on as Me; captions = speaker Them, mic on; sign = sign
- * language mode; type = cursor in the message box; replies = the quick
- * replies shown.
+ * What the Conversation screen does as soon as it's opened with an action:
+ * listen = mic on as Me (Laya's "take me to conversation mode"); replies =
+ * the quick replies shown (Home's Quick replies card).
  */
-export type ConversationAction = 'listen' | 'captions' | 'sign' | 'type' | 'replies';
+export type ConversationAction = 'listen' | 'replies';
 
-/** What a Home "Start with…" tile does when tapped. */
+/**
+ * What a Home card does when tapped. Each one goes somewhere different
+ * (owner, 2026-10-17, HANDOFF.md §37) — the greeting card is the way into
+ * Conversation.
+ */
 export type ShortcutAction =
-  | 'talk' // Conversation with the mic open
-  | 'read-last' // read the latest message aloud
-  | 'captions' // Conversation, speaker Them, mic open
-  | 'sign' // Conversation in sign language mode
-  | 'show' // "Show on screen" big text
+  | 'big-text' // Big text, to show words to someone
+  | 'sign-camera' // the sign camera: signs read and said out loud
   | 'quick-replies' // Conversation, quick replies up front
-  | 'type-to-speak'; // Conversation, messages spoken aloud
+  | 'learn' // the Learn tab
+  | 'read-last'; // read the latest message aloud (Blind / low vision)
 
 export type HomeShortcut = {
   action: ShortcutAction;
@@ -165,14 +166,10 @@ export type HomeShortcut = {
   description: string;
 };
 
-/**
- * The shortcuts each profile needs most — shown first on Home's "Start
- * with…" grid, before the standard ones (homeShortcuts below).
- */
+/** Cards only a profile gets, after the standard ones. */
 export const PROFILE_SHORTCUTS: Record<AccessibilityProfile, HomeShortcut[]> = {
   none: [],
   'blind-low-vision': [
-    { action: 'talk', icon: 'mic-outline', title: 'Talk', description: 'Start a conversation with the mic on.' },
     {
       action: 'read-last',
       icon: 'volume-high-outline',
@@ -180,44 +177,19 @@ export const PROFILE_SHORTCUTS: Record<AccessibilityProfile, HomeShortcut[]> = {
       description: 'Hear the newest message again.',
     },
   ],
-  'deaf-hoh': [
-    {
-      action: 'captions',
-      icon: 'text-outline',
-      title: 'Live captions',
-      description: 'See what the other person says as text.',
-    },
-    { action: 'sign', icon: 'hand-left-outline', title: 'Sign mode', description: 'Start in sign language mode.' },
-    { action: 'show', icon: 'expand-outline', title: 'Show on screen', description: 'Big text for someone to read.' },
-  ],
-  'mute-speech': [
-    {
-      action: 'quick-replies',
-      icon: 'flash-outline',
-      title: 'Quick replies',
-      description: 'Tap a saved reply to say it.',
-    },
-    {
-      action: 'type-to-speak',
-      icon: 'volume-high-outline',
-      title: 'Type to speak',
-      description: 'The phone says what you type.',
-    },
-    { action: 'show', icon: 'expand-outline', title: 'Show on screen', description: 'Big text for someone to read.' },
-  ],
+  'deaf-hoh': [],
+  'mute-speech': [],
 };
 
-/** The tiles everyone gets on Home: each opens Conversation ready for one thing. */
-const STANDARD_SHORTCUTS: HomeShortcut[] = [
-  { action: 'captions', icon: 'text-outline', title: 'Live captions', description: 'See what others say as text.' },
-  { action: 'type-to-speak', icon: 'volume-high-outline', title: 'Type to speak', description: 'The phone says what you type.' },
-  { action: 'sign', icon: 'hand-left-outline', title: 'Sign language', description: 'Sign, and it becomes text.' },
+/** The cards everyone gets on Home. */
+export const STANDARD_SHORTCUTS: HomeShortcut[] = [
+  { action: 'big-text', icon: 'expand-outline', title: 'Big text', description: 'Show words big for someone to read.' },
+  { action: 'sign-camera', icon: 'hand-left-outline', title: 'Sign language', description: 'Sign, and it’s said out loud.' },
   { action: 'quick-replies', icon: 'flash-outline', title: 'Quick replies', description: 'Say a saved reply in one tap.' },
+  { action: 'learn', icon: 'school-outline', title: 'Learn signs', description: 'Short lessons in sign language.' },
 ];
 
-/** Home's "Start with…" tiles: the profile's own first, then the standard ones (no repeats). */
+/** Home's cards: the standard ones, then the profile's own. */
 export function homeShortcuts(profile: AccessibilityProfile): HomeShortcut[] {
-  const own = PROFILE_SHORTCUTS[profile];
-  const taken = new Set(own.map((shortcut) => shortcut.action));
-  return [...own, ...STANDARD_SHORTCUTS.filter((shortcut) => !taken.has(shortcut.action))];
+  return [...STANDARD_SHORTCUTS, ...PROFILE_SHORTCUTS[profile]];
 }

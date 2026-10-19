@@ -17,7 +17,6 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { apiFetch } from '@/api/apiClient';
 import { ListeningPanel } from '@/components/conversation/ListeningPanel';
 import { QuickReplies } from '@/components/conversation/QuickReplies';
 import { SignPanel } from '@/components/conversation/SignPanel';
@@ -25,7 +24,9 @@ import { IconButton } from '@/components/ui/IconButton';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { usePreferences, type SignLanguage, type SignUnit } from '@/hooks/use-preferences';
 import { speechToTextSupported, useSpeechToText } from '@/hooks/use-speech-to-text';
+import { useTourTarget } from '@/tutorial/targets';
 import { announce } from '@/utils/a11y';
+import { polishSigned } from '@/utils/signedText';
 import { stopMixed } from '@/utils/speechHelper';
 
 /** What a screen can ask the composer to do. */
@@ -49,6 +50,8 @@ type ComposerProps = {
   /** Drawn at the start of the tools row, e.g. the Me / Them switch. */
   aboveInput?: ReactNode;
   controlRef?: Ref<ComposerHandle>;
+  /** The Sign, Replies and mic buttons can be lit up by the tutorial (Conversation mode only). */
+  tourTargets?: boolean;
 };
 
 // Adds newly heard (or picked) words after whatever's already in the box.
@@ -73,24 +76,6 @@ type Signed = { before: string; words: string[]; spelling: boolean };
 type Polish = { label: string; text: string; restoreText: string; restoreSigned: Signed | null };
 
 /**
- * Asks the AI on the server to tidy signed text: `gloss` turns sign words
- * ("ME GO STORE TOMORROW") into a sentence; `spell` fixes a fingerspelled
- * word. Null if it can't (offline): the text stays as signed.
- */
-async function polishSigned(text: string, kind: 'gloss' | 'spell', language: SignLanguage): Promise<string | null> {
-  try {
-    const result = await apiFetch<{ text: string }>('/assistant/polish', {
-      method: 'POST',
-      timeoutMs: 16000,
-      body: JSON.stringify({ text: text.toUpperCase(), kind, language }),
-    });
-    return result.text?.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * The bottom of every chat screen, shared by the in-person Conversation
  * screen and online chats with friends:
  *
@@ -102,8 +87,11 @@ async function polishSigned(text: string, kind: 'gloss' | 'spell', language: Sig
  *
  * What's heard or signed lands in the box to be checked before sending.
  */
-export function Composer({ onSend, listeningTo, aboveInput, controlRef }: ComposerProps) {
+export function Composer({ onSend, listeningTo, aboveInput, controlRef, tourTargets = false }: ComposerProps) {
   const { prefs } = usePreferences();
+  const signTarget = useTourTarget('conv.sign');
+  const repliesTarget = useTourTarget('conv.replies');
+  const micTarget = useTourTarget('conv.mic');
   const { colors, reduceMotion } = useAppTheme();
   const styles = useThemedStyles(makeStyles);
   const inputRef = useRef<TextInput>(null);
@@ -415,8 +403,14 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
 
       <View style={styles.toolRow}>
         <View style={styles.flex}>{aboveInput}</View>
-        {toolToggle('hand-left-outline', 'Sign', 'Sign language', signMode, () => setSignMode((on) => !on))}
-        {hasReplies ? toolToggle('flash-outline', 'Replies', 'Quick replies', repliesOpen, () => setRepliesOpen((on) => !on)) : null}
+        <View ref={tourTargets ? signTarget : undefined} collapsable={false}>
+          {toolToggle('hand-left-outline', 'Sign', 'Sign language', signMode, () => setSignMode((on) => !on))}
+        </View>
+        {hasReplies ? (
+          <View ref={tourTargets ? repliesTarget : undefined} collapsable={false}>
+            {toolToggle('flash-outline', 'Replies', 'Quick replies', repliesOpen, () => setRepliesOpen((on) => !on))}
+          </View>
+        ) : null}
       </View>
 
       {repliesOpen && hasReplies && !listening ? (
@@ -424,7 +418,7 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef }: Compos
       ) : null}
 
       <View style={styles.composeRow}>
-        <View style={styles.micWrap}>
+        <View style={styles.micWrap} ref={tourTargets ? micTarget : undefined} collapsable={false}>
           {listening ? <Animated.View pointerEvents="none" style={[styles.micRing, ringStyle]} /> : null}
           <Pressable
             style={[styles.roundButton, listening ? styles.micActive : styles.micIdle]}

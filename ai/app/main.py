@@ -2,12 +2,12 @@
 backend/scripts/startAi.js). Only reachable from this computer; the phone
 talks to the Node backend, which checks the login and forwards here.
 
-  Accel (voice assistant):   POST /interpret, POST /polish   (needs Ollama)
+  Laya (voice assistant):   POST /interpret, POST /polish   (needs Ollama)
   Sign language:             GET /sign/models, POST /sign/session,
                              POST /sign/session/{id}/chunk, DELETE /sign/session/{id}
   Status:                    GET /health
 
-Sign language works as soon as this starts. Accel waits for Ollama
+Sign language works as soon as this starts. Laya waits for Ollama
 (`ollama serve`), downloads its two models the first time, builds the
 vector index, then reports ready.
 """
@@ -49,7 +49,7 @@ async def bootstrap():
         except ollama.OllamaDown:
             state["status"] = "waiting for Ollama"
             if not told:
-                log("Accel is waiting for Ollama — start it with `ollama serve` (or open the Ollama app).")
+                log("Laya is waiting for Ollama — start it with `ollama serve` (or open the Ollama app).")
                 told = True
             await asyncio.sleep(10)
     while True:
@@ -69,7 +69,7 @@ async def bootstrap():
                 pass
             state["ready"] = True
             state["status"] = "ready"
-            log("Accel's AI is ready.")
+            log("Laya's AI is ready.")
             return
         except Exception as error:  # noqa: BLE001 — keep trying; the backend works without us
             state["status"] = "retrying"
@@ -104,7 +104,7 @@ async def health():
     }
 
 
-# ---------------------------------------------------------------- Accel
+# ---------------------------------------------------------------- Laya
 class InterpretRequest(BaseModel):
     text: str = Field(min_length=1, max_length=300)
     screen: str | None = Field(default=None, max_length=100)

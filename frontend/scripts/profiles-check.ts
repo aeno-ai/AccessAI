@@ -1,6 +1,6 @@
 // Checks what switching "My needs" does (src/constants/profiles.ts):
 //   npx tsx scripts/profiles-check.ts
-// Every profile says whether Accel is on, and only the profile's own quick
+// Every profile says whether Laya is on, and only the profile's own quick
 // reply swaps — the user's own replies stay.
 /// <reference types="node" />
 import {
@@ -10,6 +10,7 @@ import {
   quickRepliesAfterSwitch,
   suggestedQuickReplies,
 } from '../src/constants/profiles';
+import { migrateSavedPreferences } from '../src/utils/prefsMigration';
 
 let passed = 0;
 let failed = 0;
@@ -23,16 +24,32 @@ function check(name: string, condition: boolean, detail?: unknown) {
   }
 }
 
-console.log('Accel');
+console.log('Laya');
 check(
-  'every profile says whether Accel and "Hey Accel" are on',
-  PROFILE_IDS.every((id) => typeof PROFILE_PRESETS[id].accelEnabled === 'boolean' && typeof PROFILE_PRESETS[id].accelWakeWord === 'boolean'),
+  'every profile says whether Laya and "Hey Laya" are on',
+  PROFILE_IDS.every((id) => typeof PROFILE_PRESETS[id].layaEnabled === 'boolean' && typeof PROFILE_PRESETS[id].layaWakeWord === 'boolean'),
 );
-check('Blind / low vision turns Accel on', PROFILE_PRESETS['blind-low-vision'].accelEnabled === true && PROFILE_PRESETS['blind-low-vision'].accelWakeWord === true);
+check('Blind / low vision turns Laya on', PROFILE_PRESETS['blind-low-vision'].layaEnabled === true && PROFILE_PRESETS['blind-low-vision'].layaWakeWord === true);
 check(
-  'the others turn it off (Blind → Mute: Accel off)',
-  (['none', 'deaf-hoh', 'mute-speech'] as const).every((id) => PROFILE_PRESETS[id].accelEnabled === false && PROFILE_PRESETS[id].accelWakeWord === false),
+  'the others turn it off (Blind → Mute: Laya off)',
+  (['none', 'deaf-hoh', 'mute-speech'] as const).every((id) => PROFILE_PRESETS[id].layaEnabled === false && PROFILE_PRESETS[id].layaWakeWord === false),
 );
+
+console.log('\nsettings saved when Laya was called Accel');
+const oldOff = migrateSavedPreferences({ profile: 'blind-low-vision', accelEnabled: false, accelWakeWord: false, accelVoice: 'woman' });
+check(
+  'Blind, Accel turned off by hand: Laya stays off',
+  oldOff.layaEnabled === false && oldOff.layaWakeWord === false && oldOff.layaVoice === 'woman',
+  oldOff,
+);
+check('the old names are gone', !Object.keys(oldOff).some((key) => key.startsWith('accel')), oldOff);
+const oldOn = migrateSavedPreferences({ profile: 'none', accelEnabled: true, accelSmart: false, accelIntroDone: true });
+check('Accel turned on: Laya stays on, with the same settings', oldOn.layaEnabled === true && oldOn.layaSmart === false && oldOn.layaIntroDone === true, oldOn);
+check('heard Accel\'s introduction: hears once about the new name', oldOn.layaRenameNoticeDone === false, oldOn);
+const fresh = migrateSavedPreferences({ profile: 'none', layaEnabled: true });
+check('saved after the rename: nothing changes', JSON.stringify(fresh) === JSON.stringify({ profile: 'none', layaEnabled: true }), fresh);
+const both = migrateSavedPreferences({ accelEnabled: false, layaEnabled: true });
+check('a value under the new name wins', both.layaEnabled === true && !('accelEnabled' in both), both);
 
 console.log('\nquick replies');
 const BLIND = 'Please read it to me';

@@ -1,12 +1,12 @@
 const LearnCompletion = require('../models/LearnCompletion');
 const Friendship = require('../models/Friendship');
 const User = require('../models/Users');
-const { USABLE_ACCOUNT } = require('./friendController');
+const { usableAccount } = require('./friendController');
 
 // Learn, the sign-language course. The phone keeps its own log of finished
 // lessons and works everything out from it (offline first); the server just
 // keeps a copy of that log — so a new phone gets the progress back — and
-// adds up friends' XP for the weekly leaderboard.
+// counts friends' lessons for the weekly leaderboard.
 
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000; // UTC+8, no daylight saving
 
@@ -22,7 +22,7 @@ const toClient = (completion) => ({
   clientId: completion.clientId,
   course: completion.course,
   lessonId: completion.lessonId,
-  xp: completion.xp,
+  ...(completion.xp !== undefined ? { xp: completion.xp } : {}),
   mistakes: completion.mistakes ?? 0,
   cameraPassed: completion.cameraPassed ?? 0,
   completedAt: completion.completedAt.getTime(),
@@ -45,7 +45,7 @@ const syncCompletions = async (req, res, next) => {
               clientId: completion.clientId,
               course: completion.course,
               lessonId: completion.lessonId,
-              xp: completion.xp,
+              ...(completion.xp !== undefined ? { xp: completion.xp } : {}),
               mistakes: completion.mistakes,
               cameraPassed: completion.cameraPassed,
               completedAt: new Date(completion.completedAt),
@@ -77,8 +77,11 @@ const getProgress = async (req, res, next) => {
   }
 };
 
-// This week's XP for me and my friends (only accepted friends whose
-// accounts are usable), most first. Friends with no XP yet are listed too.
+// How many different lessons I and my friends finished this week (only
+// accepted friends whose accounts are usable), most first — doing one
+// again doesn't count twice. Friends with none yet are listed too. `xp`
+// (this week's points, 0 for lessons from 2026-10-17 on) stays for app
+// versions from before Learn stopped keeping score.
 const getLeaderboard = async (req, res, next) => {
   try {
     const me = req.user.userId;
@@ -87,24 +90,32 @@ const getLeaderboard = async (req, res, next) => {
       .select('requester recipient')
       .lean();
     const friendIds = friendships.map((f) => (String(f.requester) === String(me) ? f.recipient : f.requester));
-    const people = await User.find({ _id: { $in: [me, ...friendIds] }, ...USABLE_ACCOUNT })
+    const people = await User.find({ _id: { $in: [me, ...friendIds] }, ...usableAccount() })
       .select('name firstName')
       .lean();
     const ids = people.map((person) => person._id);
 
     const totals = await LearnCompletion.aggregate([
       { $match: { userId: { $in: ids }, completedAt: { $gte: since } } },
-      { $group: { _id: '$userId', xp: { $sum: '$xp' } } },
+      {
+        $group: {
+          _id: '$userId',
+          lessons: { $addToSet: { $concat: ['$course', ':', '$lessonId'] } },
+          xp: { $sum: { $ifNull: ['$xp', 0] } },
+        },
+      },
+      { $project: { lessons: { $size: '$lessons' }, xp: 1 } },
     ]);
-    const xpById = new Map(totals.map((row) => [String(row._id), row.xp]));
+    const byId = new Map(totals.map((row) => [String(row._id), row]));
 
     const rows = people.map((person) => ({
       userId: String(person._id),
       name: person.firstName || person.name?.split(' ')[0] || 'Friend',
-      xp: xpById.get(String(person._id)) ?? 0,
+      lessons: byId.get(String(person._id))?.lessons ?? 0,
+      xp: byId.get(String(person._id))?.xp ?? 0,
       me: String(person._id) === String(me),
     }));
-    rows.sort((a, b) => b.xp - a.xp || a.name.localeCompare(b.name));
+    rows.sort((a, b) => b.lessons - a.lessons || a.name.localeCompare(b.name));
     res.json({ weekStart: since.getTime(), rows });
   } catch (error) {
     next(error);

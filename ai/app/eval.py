@@ -1,4 +1,4 @@
-"""Scores Accel on ai/eval.jsonl — sentences NOT in intents.json, each with
+"""Scores Laya on ai/eval.jsonl — sentences NOT in intents.json, each with
 the action it should map to. Use it after changing examples or thresholds:
 
     cd ai

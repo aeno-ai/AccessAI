@@ -18,10 +18,14 @@ const {
   changePasswordValidators,
   emailChangeCodeValidators,
   changeEmailValidators,
+  logoutValidators,
+  acceptTermsValidators,
 } = require('../validators/authValidators');
 const {
   register,
   login,
+  logout,
+  acceptTerms,
   verifyEmail,
   resendVerification,
   forgotPassword,
@@ -80,6 +84,12 @@ router.post('/google/complete', googleCompleteValidators, validate, googleComple
 router.post('/google/restore', googleRestoreValidators, validate, googleRestore);
 
 router.get('/me', protect, getMe);
+
+// Signing out on purpose (recorded; removes this phone's push address).
+router.post('/logout', protect, logoutValidators, validate, logout);
+
+// 'I agree' on the 'We updated our Terms' screen (GET /me says needsTerms).
+router.post('/terms', protect, acceptTermsValidators, validate, acceptTerms);
 
 // "Edit profile". Answers with a fresh login token, because the app reads
 // the first name for its greeting straight from the token (so it shows

@@ -1,9 +1,8 @@
 const mongoose = require('mongoose');
 
 // One finished Learn lesson (or review), as the phone recorded it. The phone
-// works out everything else from these — XP, level, streak, which lessons
-// are open, badges — so a new phone rebuilds a person's progress from this
-// list alone. Written offline first and sent later (the phone's outbox), so
+// works out which lessons are open from these, so a new phone rebuilds a
+// person's progress from this list alone. Written offline first and sent later (the phone's outbox), so
 // `completedAt` is the phone's time and `clientId` (made by the phone) keeps
 // a re-sent one from being saved twice. Never changed once saved.
 const learnCompletionSchema = new mongoose.Schema(
@@ -14,7 +13,9 @@ const learnCompletionSchema = new mongoose.Schema(
     course: { type: String, enum: ['fsl', 'asl'], required: true },
     // Which lesson in that course, e.g. "fsl-greetings-1" or "asl-basics-review".
     lessonId: { type: String, required: true, trim: true, maxlength: 80 },
-    xp: { type: Number, required: true, min: 0, max: 30 },
+    // Points, only on lessons finished before Learn stopped keeping score
+    // (2026-10-17, HANDOFF.md §38). Kept so older app versions still work.
+    xp: { type: Number, min: 0, max: 30 },
     // Quiz answers that were wrong (0 = a perfect lesson).
     mistakes: { type: Number, default: 0, min: 0, max: 50 },
     // Signs done right in front of the camera during the lesson.

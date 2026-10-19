@@ -1,5 +1,5 @@
 {
-  "about": "Everything Accel (the voice assistant) can do. Each action has an id (the app's frontend/src/accel/catalog.ts must list the same ids — check with `node scripts/check-accel-catalog.mjs` in frontend/), a description the AI reads, the details it may need (slots), and example sentences in English, Filipino and Taglish. More examples = better understanding: add freely, then restart the AI service and the vector index rebuilds by itself.",
+  "about": "Everything Laya (the voice assistant) can do. Each action has an id (the app's frontend/src/laya/catalog.ts must list the same ids — check with `node scripts/check-laya-catalog.mjs` in frontend/), a description the AI reads, the details it may need (slots), and example sentences in English, Filipino and Taglish. More examples = better understanding: add freely, then restart the AI service and the vector index rebuilds by itself.",
   "intents": [
     {
       "id": "nav.home",
@@ -126,7 +126,11 @@
         "teach me sign language",
         "practice signing",
         "buksan ang learn",
-        "gusto kong matuto ng sign language"
+        "gusto kong matuto ng sign language",
+        "learn signs",
+        "learn sign language",
+        "matuto ng signs",
+        "mag-aral ng sign language"
       ]
     },
     {
@@ -212,15 +216,15 @@
       ]
     },
     {
-      "id": "nav.settings_accel",
-      "description": "Open Settings → Accel (the voice assistant itself)",
+      "id": "nav.settings_laya",
+      "description": "Open Settings → Laya (the voice assistant itself)",
       "slots": [],
       "examples": [
-        "Accel settings",
+        "Laya settings",
         "assistant settings",
         "voice assistant settings",
-        "turn off hey accel",
-        "settings mo Accel"
+        "turn off hey laya",
+        "settings mo Laya"
       ]
     },
     {
@@ -252,13 +256,13 @@
       ]
     },
     {
-      "id": "nav.accel_guide",
-      "description": "Open the guide of what Accel can do",
+      "id": "nav.laya_guide",
+      "description": "Open the guide of what Laya can do",
       "slots": [],
       "examples": [
-        "open the Accel guide",
+        "open the Laya guide",
         "show me what you can do",
-        "Accel guide",
+        "Laya guide",
         "list of commands",
         "guide ng assistant"
       ]
@@ -469,7 +473,7 @@
     },
     {
       "id": "read.help",
-      "description": "Say what Accel can do",
+      "description": "Say what Laya can do",
       "slots": [],
       "examples": [
         "what can I say",
@@ -484,7 +488,7 @@
     },
     {
       "id": "read.repeat",
-      "description": "Repeat what Accel last said",
+      "description": "Repeat what Laya last said",
       "slots": [],
       "examples": [
         "repeat that",
@@ -524,7 +528,7 @@
     },
     {
       "id": "msg.send",
-      "description": "Send a chat message to a friend. The friend's name and the message text if said; without them Accel asks who and what (e.g. 'send a message to Ana')",
+      "description": "Send a chat message to a friend. The friend's name and the message text if said; without them Laya asks who and what (e.g. 'send a message to Ana')",
       "slots": [
         "friendName",
         "messageText"
@@ -692,6 +696,49 @@
         "lalaki na boses",
         "babae na boses",
         "palitan ang boses"
+      ]
+    },
+    {
+      "id": "nav.big_text",
+      "description": "Open Big text: a full-screen card that shows words in very large letters for someone nearby to read (no words given yet)",
+      "slots": [],
+      "examples": [
+        "open big text",
+        "big text",
+        "show big text",
+        "buksan ang big text",
+        "malaking sulat",
+        "I want to show something in big letters"
+      ]
+    },
+    {
+      "id": "text.show_big",
+      "description": "Show these exact words in Big text (very large letters on screen) for someone nearby to read. messageText = the words to show. NOT making the app text bigger (that is text.bigger).",
+      "slots": [
+        "messageText"
+      ],
+      "examples": [
+        "show big text I need to pee",
+        "big text: where is the restroom",
+        "show in big letters thank you very much",
+        "display in big text please wait",
+        "ipakita nang malaki: kailangan kong mag-CR",
+        "ipakita sa malaking sulat salamat po",
+        "malaking sulat: saan ang sakayan ng jeep",
+        "ipakita mo nang malaki na bingi ako"
+      ]
+    },
+    {
+      "id": "nav.sign_camera",
+      "description": "Open the sign camera: sign in front of the camera and the app says the signs out loud as a sentence (Home's Sign language card)",
+      "slots": [],
+      "examples": [
+        "open the sign camera",
+        "sign language camera",
+        "I want to sign and have it spoken",
+        "read my signs out loud",
+        "buksan ang sign camera",
+        "camera para sa sign language"
       ]
     },
     {
@@ -884,7 +931,10 @@
         "say quick reply 2",
         "quick reply number one",
         "use the first quick reply",
-        "quick reply three"
+        "quick reply three",
+        "sabihin ang pangalawang quick reply",
+        "yung unang quick reply",
+        "sabihin ang quick reply 3"
       ]
     },
     {
@@ -1013,7 +1063,7 @@
     },
     {
       "id": "blocked.outside",
-      "description": "Something outside AccessAI that Accel never does: other apps, phone settings, phone calls (other than an SOS), searching the web, music",
+      "description": "Something outside AccessAI that Laya never does: other apps, phone settings, phone calls (other than an SOS), searching the web, music",
       "slots": [],
       "examples": [
         "open Facebook",

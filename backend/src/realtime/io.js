@@ -46,6 +46,30 @@ function emitToUser(userId, event, payload = {}) {
   io?.to(roomOf(userId)).emit(event, payload);
 }
 
+// Closes every live connection of one account — an admin suspended it or is
+// deleting it (HANDOFF.md §42). The phone's reconnect is then refused by the
+// token check, and its next REST request gets the reason.
+function disconnectUser(userId) {
+  for (const socket of [...(socketsByUser.get(String(userId)) ?? [])]) {
+    socket.disconnect(true);
+  }
+}
+
+// Everyone with a friendship or a request with this account reloads their
+// lists — it was suspended, is being deleted, or is back. Never throws.
+async function notifyFriendsChanged(userId) {
+  try {
+    const friendships = await Friendship.find({ $or: [{ requester: userId }, { recipient: userId }] })
+      .select('requester recipient')
+      .lean();
+    for (const f of friendships) {
+      emitToUser(String(f.requester) === String(userId) ? f.recipient : f.requester, 'friends:changed');
+    }
+  } catch (error) {
+    console.error("Couldn't tell friends about an account change:", error);
+  }
+}
+
 async function acceptedFriendIds(userId) {
   const friendships = await Friendship.find({
     status: 'accepted',
@@ -120,4 +144,4 @@ function initRealtime(httpServer, allowedOrigins) {
   return io;
 }
 
-module.exports = { initRealtime, emitToUser, isOnline, isForeground };
+module.exports = { initRealtime, emitToUser, disconnectUser, notifyFriendsChanged, isOnline, isForeground };

@@ -1,15 +1,14 @@
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect, type Href } from 'expo-router';
-import { DrawerToggleButton } from 'expo-router/drawer';
 import { Ionicons } from '@expo/vector-icons';
-import { BigTextCard } from '@/components/conversation/BigTextCard';
+import { useBigText } from '@/components/conversation/BigTextHost';
 import { AppLogo } from '@/components/onboarding/Illustrations';
 import { SosBanner } from '@/components/dashboard/SosBanner';
 import { ActiveSosCards } from '@/components/sos/ActiveSosCards';
 import { RecentSosCard } from '@/components/sos/RecentSosCard';
-import { IconButton } from '@/components/ui/IconButton';
 import { ScreenShell } from '@/components/ui/ScreenShell';
+import { TabHeader } from '@/components/ui/TabHeader';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { homeShortcuts, type ShortcutAction } from '@/constants/profiles';
 import { getMessages, listConversations, type Conversation } from '@/db/conversations';
@@ -17,6 +16,8 @@ import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-the
 import { useBootstrap } from '@/hooks/use-bootstrap';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useScreenReader } from '@/hooks/use-screen-reader';
+import { useTour } from '@/tutorial/TutorialProvider';
+import { useTourTarget } from '@/tutorial/targets';
 import { announce } from '@/utils/a11y';
 import { keepIfSame } from '@/utils/cache';
 import { openConversationFor, openSavedConversation } from '@/utils/conversationNav';
@@ -30,21 +31,27 @@ function formatWhen(ms: number): string {
 
 /**
  * Home, top to bottom: an SOS still going (if any); the past week's SOS,
- * ended ones too (RecentSosCard); the greeting card, the
- * one way into a conversation; "Start with…", real buttons that each open
- * Conversation ready for one thing (the user's profile's own first); the
- * Emergency SOS button; and the last few conversations.
+ * ended ones too (RecentSosCard); the greeting card, the one way into a
+ * conversation; "Start with…", four cards that each go somewhere
+ * different (Big text, the sign camera, quick replies, Learn — plus "Read
+ * last message" for Blind / low vision); the Emergency SOS button; and
+ * the last few conversations. The first visit shows its tour.
  */
 export default function HomeScreen() {
   const { role, firstName } = useBootstrap();
-  const { prefs, setPref } = usePreferences();
+  const { prefs } = usePreferences();
   const { colors } = useAppTheme();
   const styles = useThemedStyles(makeStyles);
   const screenReaderOn = useScreenReader();
-  const [showBig, setShowBig] = useState(false);
+  const bigText = useBigText();
   const [recent, setRecent] = useState<Conversation[]>([]);
   const greeting = firstName ? `Hello, ${firstName}!` : 'Hello!';
   const shortcuts = homeShortcuts(prefs.profile);
+  const greetingTarget = useTourTarget('home.greeting');
+  const cardsTarget = useTourTarget('home.cards');
+  const sosTarget = useTourTarget('home.sos');
+  const recentTarget = useTourTarget('home.recent');
+  useTour('home');
 
   useFocusEffect(
     useCallback(() => {
@@ -76,70 +83,63 @@ export default function HomeScreen() {
 
   const runShortcut = (action: ShortcutAction) => {
     switch (action) {
-      case 'talk':
-        return openConversationFor('listen');
-      case 'captions':
-        return openConversationFor('captions');
-      case 'sign':
-        return openConversationFor('sign');
-      case 'show':
-        return setShowBig(true);
-      case 'read-last':
-        return void readLastMessage();
+      case 'big-text':
+        return bigText.show();
+      case 'sign-camera':
+        return router.push('/sign-camera' as Href);
       case 'quick-replies':
         return openConversationFor('replies');
-      case 'type-to-speak':
-        if (!prefs.speakMyMessages) {
-          setPref('speakMyMessages', true);
-          announce('Your messages will be spoken aloud.');
-        }
-        return openConversationFor('type');
+      case 'learn':
+        return router.navigate('/learn');
+      case 'read-last':
+        return void readLastMessage();
     }
   };
 
   return (
     <ScreenShell maxWidth={MaxContentWidth.app}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <View style={styles.headerSide}>
-            <DrawerToggleButton tintColor={colors.textPrimary} accessibilityLabel="Open menu" />
-          </View>
-          <View style={styles.wordmarkRow} accessible accessibilityRole="header" accessibilityLabel="AccessAI">
-            <AppLogo size={28} decorative />
-            <Text style={styles.wordmark}>AccessAI</Text>
-          </View>
-          <IconButton
-            icon="person-circle-outline"
-            label="Edit profile"
-            variant="tinted"
-            iconSize={26}
-            onPress={() => router.push('/profile')}
-          />
-        </View>
+        {/* The profile is in the menu (☰), so there's no profile button here. */}
+        <TabHeader
+          title="AccessAI, Home"
+          menuTarget="home.menu"
+          titleContent={
+            <>
+              <AppLogo size={28} decorative />
+              <Text style={styles.wordmark}>AccessAI</Text>
+            </>
+          }
+        />
 
         {/* An SOS that's still going (a friend's, or the user's own) comes first. */}
         <ActiveSosCards />
         {/* Then the past week's, ended ones too: when, where, how it ended. */}
         <RecentSosCard />
 
-        <Pressable
-          style={({ pressed }) => [styles.greetingCard, pressed && styles.pressed]}
-          onPress={() => router.push('/conversation')}
-          accessibilityRole="button"
-          accessibilityLabel={`${greeting} Start a conversation`}
-          accessibilityHint="Talk, type or sign with someone next to you"
-        >
-          <Text style={styles.greetingTitle}>{greeting}</Text>
-          <Text style={styles.greetingSubtitle}>Talk with anyone — by voice, typing or sign language.</Text>
-          <View style={styles.greetingAction}>
-            <Text style={styles.greetingActionText}>Start a conversation</Text>
-            <Ionicons name="arrow-forward" size={20} color={colors.primary} />
+        <View ref={greetingTarget} collapsable={false}>
+          <Pressable
+            style={({ pressed }) => [styles.greetingCard, pressed && styles.pressed]}
+            onPress={() => router.push('/conversation')}
+            accessibilityRole="button"
+            accessibilityLabel={`${greeting} Start a conversation`}
+            accessibilityHint="Talk, type or sign with someone next to you"
+          >
+            <Text style={styles.greetingTitle}>{greeting}</Text>
+            <Text style={styles.greetingSubtitle}>Talk with anyone — by voice, typing or sign language.</Text>
+            <View style={styles.greetingAction}>
+              <Text style={styles.greetingActionText}>Start a conversation</Text>
+              <Ionicons name="arrow-forward" size={20} color={colors.primary} />
+            </View>
+          </Pressable>
+        </View>
+
+        {role !== 'non_pwd' ? (
+          <View ref={sosTarget} collapsable={false}>
+            <SosBanner />
           </View>
-        </Pressable>
+        ) : null}
 
-        {role !== 'non_pwd' ? <SosBanner /> : null}
-
-        <View>
+        <View ref={cardsTarget} collapsable={false}>
           <Text style={styles.sectionTitle} accessibilityRole="header">
             Start with…
           </Text>
@@ -164,7 +164,7 @@ export default function HomeScreen() {
         </View>
 
         {recent.length ? (
-          <View>
+          <View ref={recentTarget} collapsable={false}>
             <View style={styles.sectionRow}>
               <Text style={[styles.sectionTitle, styles.flex]} accessibilityRole="header">
                 Recent conversations
@@ -202,8 +202,6 @@ export default function HomeScreen() {
           </View>
         ) : null}
       </ScrollView>
-
-      <BigTextCard visible={showBig} onClose={() => setShowBig(false)} />
     </ScreenShell>
   );
 }
@@ -218,21 +216,6 @@ const makeStyles = (t: AppTheme) =>
     },
     flex: {
       flex: 1,
-    },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    },
-    headerSide: {
-      minWidth: 48,
-      minHeight: 48,
-      justifyContent: 'center',
-    },
-    wordmarkRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
     },
     wordmark: {
       fontSize: t.font(16),

@@ -11,6 +11,8 @@ import { Spacing } from '@/constants/theme';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { useIsOnline } from '@/hooks/use-is-online';
 import { useFriends } from '@/realtime/FriendsProvider';
+import { useTour } from '@/tutorial/TutorialProvider';
+import { useTourTarget } from '@/tutorial/targets';
 import { announce } from '@/utils/a11y';
 
 // What the QR code holds. Anything ending in a code also works when scanned.
@@ -43,6 +45,11 @@ export default function AddFriendScreen() {
   const [scanning, setScanning] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const scanned = useRef(false);
+  const codeTarget = useTourTarget('addFriend.code');
+  const shareTarget = useTourTarget('addFriend.share');
+  const inputTarget = useTourTarget('addFriend.input');
+  const scanTarget = useTourTarget('addFriend.scan');
+  useTour('add-friend');
 
   const send = async (raw: string) => {
     const parsed = extractCode(raw);
@@ -105,7 +112,7 @@ export default function AddFriendScreen() {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <SectionHeader title="Your friend code" />
-      <View style={styles.codeCard}>
+      <View style={styles.codeCard} ref={codeTarget} collapsable={false}>
         {friendCode ? (
           <>
             <Text style={styles.code} accessibilityLabel={`Your friend code: ${spellOut(friendCode)}`}>
@@ -113,7 +120,9 @@ export default function AddFriendScreen() {
             </Text>
             <QrCode value={`${QR_PREFIX}${friendCode}`} size={200} />
             <Text style={styles.codeHint}>Let a friend scan this, or share the code.</Text>
-            <PrimaryButton title="Share my code" onPress={shareCode} />
+            <View ref={shareTarget} collapsable={false} style={styles.stretch}>
+              <PrimaryButton title="Share my code" onPress={shareCode} />
+            </View>
           </>
         ) : online ? (
           <ActivityIndicator color={colors.primary} />
@@ -123,27 +132,29 @@ export default function AddFriendScreen() {
       </View>
 
       <SectionHeader title="Add someone" />
-      <TextInput
-        style={styles.input}
-        value={code}
-        onChangeText={setCode}
-        placeholder="ABCD-2345"
-        placeholderTextColor={colors.textMuted}
-        autoCapitalize="characters"
-        autoCorrect={false}
-        maxLength={12}
-        accessibilityLabel="Friend's code"
-        onSubmitEditing={() => void send(code)}
-        returnKeyType="send"
-      />
-      <PrimaryButton
-        title="Send friend request"
-        onPress={() => void send(code)}
-        loading={sending}
-        disabled={!online || !code.trim()}
-      />
+      <View ref={inputTarget} collapsable={false} style={styles.addBlock}>
+        <TextInput
+          style={styles.input}
+          value={code}
+          onChangeText={setCode}
+          placeholder="ABCD-2345"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={12}
+          accessibilityLabel="Friend's code"
+          onSubmitEditing={() => void send(code)}
+          returnKeyType="send"
+        />
+        <PrimaryButton
+          title="Send friend request"
+          onPress={() => void send(code)}
+          loading={sending}
+          disabled={!online || !code.trim()}
+        />
+      </View>
       {Platform.OS !== 'web' ? (
-        <View style={styles.scanWrap}>
+        <View style={styles.scanWrap} ref={scanTarget} collapsable={false}>
           <PrimaryButton title="Scan a QR code" onPress={() => void openScanner()} disabled={!online || sending} />
         </View>
       ) : null}
@@ -229,6 +240,12 @@ const makeStyles = (t: AppTheme) =>
     },
     scanWrap: {
       marginTop: 10,
+    },
+    stretch: {
+      alignSelf: 'stretch',
+    },
+    addBlock: {
+      alignSelf: 'stretch',
     },
     note: {
       marginTop: 10,

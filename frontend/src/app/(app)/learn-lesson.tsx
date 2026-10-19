@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Alert, findNodeHandle, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import type { Plan } from '@/accel/actions';
-import type { Slots } from '@/accel/catalog';
-import { normalize } from '@/accel/language';
-import { useAccelScreen } from '@/accel/screenContext';
+import type { Plan } from '@/laya/actions';
+import type { Slots } from '@/laya/catalog';
+import { normalize } from '@/laya/language';
+import { inLang, P, type Lang, type Line } from '@/laya/phrases';
+import { useLayaScreen } from '@/laya/screenContext';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { ChoiceGrid } from '@/components/learn/ChoiceGrid';
 import { LessonComplete } from '@/components/learn/LessonComplete';
@@ -16,12 +17,10 @@ import { SignSteps } from '@/components/learn/SignSteps';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { MaxContentWidth } from '@/constants/theme';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
-import { useIsOnline } from '@/hooks/use-is-online';
 import { useScreenReader } from '@/hooks/use-screen-reader';
 import { signReady, useSignModels } from '@/hooks/use-sign-recognition';
-import { useLearn, useNow } from '@/learn/LearnProvider';
+import { useLearn } from '@/learn/LearnProvider';
 import { buildExercises, findLesson, type Exercise, type Lesson } from '@/learn/lessons';
-import { heartsNow, manilaDay, streakOf, xpOn, type BadgeId } from '@/learn/progress';
 import type { Completion, Sign } from '@/learn/types';
 import { useDescribeSigns, useFeedback } from '@/learn/useFeedback';
 import { stopMixed } from '@/utils/speechHelper';
@@ -55,24 +54,13 @@ const leaveLesson = () => router.navigate('/learn');
  * fixed from then on: the player keeps the first list it gets.
  */
 function LessonPlayer({ lesson }: { lesson: Lesson }) {
-  const styles = useThemedStyles(makeStyles);
-  const online = useIsOnline();
   const { describe } = useDescribeSigns();
   const models = useSignModels();
 
-  if (models === null && online) {
-    return (
-      <ScreenShell maxWidth={MaxContentWidth.app}>
-        <View style={styles.center}>
-          <Text style={styles.prompt}>Getting the lesson ready…</Text>
-        </View>
-      </ScreenShell>
-    );
-  }
   const exercises = buildExercises(lesson, {
-    // The clips come with the app: no internet needed.
+    // The clips and the sign reader come with the app: no internet needed.
     video: clipPlayerInApp,
-    camera: online && signReady(models, lesson.course, 'words'),
+    camera: signReady(models, lesson.course, 'words'),
     describe,
   });
   return <LessonRun lesson={lesson} initialExercises={exercises} models={models} />;
@@ -91,10 +79,8 @@ function LessonRun({
   const styles = useThemedStyles(makeStyles);
   const say = useFeedback();
   const learn = useLearn();
-  const online = useIsOnline();
   const screenReader = useScreenReader();
   const { describe, aloud } = useDescribeSigns();
-  const now = useNow(15 * 1000);
   const review = lesson.kind === 'review';
   const [exercises, setExercises] = useState<Exercise[]>(initialExercises);
 
@@ -104,8 +90,7 @@ function LessonRun({
   const [mistakes, setMistakes] = useState(0);
   const [quizQuestions, setQuizQuestions] = useState(0);
   const [cameraPassed, setCameraPassed] = useState(0);
-  const [outOfHearts, setOutOfHearts] = useState(false);
-  const [finished, setFinished] = useState<{ completion: Completion; newBadges: BadgeId[] } | null>(null);
+  const [finished, setFinished] = useState<{ completion: Completion } | null>(null);
   // The video showing in read-pick and match (one player for all).
   const [showing, setShowing] = useState<Sign | null>(null);
   const [tryingIntro, setTryingIntro] = useState(false);
@@ -125,13 +110,12 @@ function LessonRun({
   // Leaving the lesson stops any steps still being said.
   useEffect(() => () => stopMixed(), []);
 
-  const hearts = heartsNow(learn.hearts, now).hearts.count;
   const exercise = exercises[index] ?? null;
 
   const finish = useCallback(async () => {
-    const result = await learn.finishLesson({ lesson, mistakes, quizQuestions, cameraPassed: Math.min(10, cameraPassed) });
+    const result = await learn.finishLesson({ lesson, mistakes, cameraPassed: Math.min(10, cameraPassed) });
     setFinished(result);
-  }, [learn, lesson, mistakes, quizQuestions, cameraPassed]);
+  }, [learn, lesson, mistakes, cameraPassed]);
 
   const next = useCallback(() => {
     setSelected(null);
@@ -143,7 +127,7 @@ function LessonRun({
     else setIndex((i) => i + 1);
   }, [exercises, index, finish]);
 
-  // A quiz answer: right, or a mistake (a heart, except in a review).
+  // A quiz answer: right, or a mistake (no penalty — Learn keeps no score).
   const grade = (right: boolean, answer: string) => {
     setChecked({ right, answer });
     setQuizQuestions((n) => n + 1);
@@ -152,21 +136,17 @@ function LessonRun({
     } else {
       setMistakes((n) => n + 1);
       say(`Not quite. The answer is ${answer}.`);
-      if (!review) learn.loseHeart();
     }
   };
 
-  const afterAnswer = () => {
-    // The heart just lost was the last one: the lesson stops here.
-    if (!review && heartsNow(learn.hearts, Date.now()).hearts.count <= 0) setOutOfHearts(true);
-    else next();
-  };
+  const afterAnswer = next;
 
-  // ---- Accel: a blind learner answers by voice. Each command does what its
+  // ---- Laya: a blind learner answers by voice. Each command does what its
   // button does. (Matching and picking a video need sight, and aren't in a
   // lesson told in words.)
   const picking = exercise?.kind === 'watch-pick' || exercise?.kind === 'read-pick' ? exercise : null;
-  const choiceName = (option: Sign, i: number) => (exercise?.kind === 'read-pick' ? `video ${i + 1}` : option.display);
+  const choiceName = (option: Sign, i: number, lang: Lang = 'en') =>
+    exercise?.kind === 'read-pick' ? inLang(lang, P.videoNumber(i + 1)) : option.display;
   const findChoice = (slots: Slots): Sign | null => {
     if (!picking) return null;
     if (slots.number) return picking.options[slots.number - 1] ?? null;
@@ -174,118 +154,98 @@ function LessonRun({
     return picking.options.find((option, i) => said !== '' && normalize(choiceName(option, i)) === said) ?? null;
   };
   const stepsOf = (sign: Sign) => sign.steps.join(' ');
-  const choicesText = () => (picking ? picking.options.map((option, i) => `${i + 1}, ${choiceName(option, i)}`).join('. ') : '');
+  const choicesText = (lang: Lang) =>
+    picking ? picking.options.map((option, i) => `${i + 1}, ${choiceName(option, i, lang)}`).join('. ') : '';
   const lessonPlan = (text: string): Plan => ({ kind: 'say', text });
-  useAccelScreen({
+  useLayaScreen({
     name: 'a Learn lesson',
-    describe: () => {
-      if (finished) return 'The lesson is done. Say "continue" to go back to Learn.';
-      if (outOfHearts || (!review && hearts <= 0 && index === 0)) return "You're out of hearts. Say go back to return to Learn.";
-      const left = review ? '' : ` ${hearts} ${hearts === 1 ? 'heart' : 'hearts'} left.`;
-      if (!exercise) return 'The lesson is getting ready.';
+    describe: (lang) => {
+      const t = (line: Line) => inLang(lang, line);
+      if (finished) return t(P.lessonDone);
+      if (!exercise) return t(P.lessonGettingReady);
       switch (exercise.kind) {
         case 'intro':
-          return `New sign: ${exercise.sign.display}. ${stepsOf(exercise.sign)} Say "continue" when you're ready.${left}`;
+          return t(P.newSign(exercise.sign.display, stepsOf(exercise.sign)));
         case 'watch-pick':
         case 'read-pick': {
           const question =
             exercise.kind === 'read-pick'
-              ? `Which video signs ${exercise.sign.display}?`
+              ? t(P.whichVideoSigns(exercise.sign.display))
               : describe
-                ? `What sign do these steps make? ${stepsOf(exercise.sign)}`
-                : 'What does this sign mean?';
+                ? t(P.whatSignSteps(stepsOf(exercise.sign)))
+                : t(P.whatDoesSignMean);
+          const chosen = exercise.options.findIndex((o) => o.label === selected);
           const state = checked
-            ? ` ${checked.right ? 'You got it right.' : `The answer was ${checked.answer}.`} Say "continue".`
+            ? ` ${checked.right ? t(P.gotItRight) : t(P.answerWas(checked.answer))} ${t(P.sayContinue)}`
             : selected
-              ? ` You chose ${choiceName(exercise.options.find((o) => o.label === selected)!, exercise.options.findIndex((o) => o.label === selected))}. Say "check".`
-              : ' Say "the first one", or the answer.';
-          return `${question} The choices: ${choicesText()}.${state}${left}`;
+              ? ` ${t(P.youChose(choiceName(exercise.options[chosen], chosen, lang)))}`
+              : ` ${t(P.sayFirstOne)}`;
+          return `${question} ${t(P.theChoices(choicesText(lang)))}${state}`;
         }
         case 'do-sign':
-          return `Your turn: sign ${exercise.sign.display} in front of the camera. Say "hear the steps" for how, or "skip".${left}`;
+          return t(P.yourTurnToSign(exercise.sign.display));
         case 'match':
-          return `Match each video to its word.${left}`;
+          return t(P.matchVideos);
       }
     },
-    examples: ['the first one', 'check', 'continue', 'hear the steps', 'skip'],
+    examples: (lang) =>
+      lang === 'fil' ? ['yung una', 'i-check', 'tuloy', 'paano gawin', 'laktawan'] : ['the first one', 'check', 'continue', 'hear the steps', 'skip'],
     accepts: (intent, slots) => intent !== 'learn.choose' || (findChoice(slots) !== null && !checked),
     commands: {
-      'learn.choose': (slots) => {
+      'learn.choose': (slots, lang) => {
         const choice = findChoice(slots);
-        if (!picking || !choice) return lessonPlan(`Say one of the choices: ${choicesText() || 'there are none here'}.`);
-        if (checked) return lessonPlan('That question is done. Say "continue".');
+        if (!picking || !choice) return lessonPlan(inLang(lang, P.sayOneOfChoices(choicesText(lang) || inLang(lang, P.noChoicesHere))));
+        if (checked) return lessonPlan(inLang(lang, P.questionDone));
         return {
           kind: 'do',
           run: async () => {
             setSelected(choice.label);
             if (exercise?.kind === 'read-pick') setShowing(choice);
-            return { say: `${choiceName(choice, picking.options.indexOf(choice))}. Say "check" to check it.` };
+            return { say: inLang(lang, P.chosenSayCheck(choiceName(choice, picking.options.indexOf(choice), lang))) };
           },
         };
       },
-      'learn.check': () => {
-        if (!picking) return lessonPlan('There is nothing to check here. Say "continue".');
-        if (checked) return lessonPlan('Already checked. Say "continue".');
-        if (!selected) return lessonPlan(`Choose an answer first. The choices: ${choicesText()}.`);
+      'learn.check': (_slots, lang) => {
+        if (!picking) return lessonPlan(inLang(lang, P.nothingToCheck));
+        if (checked) return lessonPlan(inLang(lang, P.alreadyChecked));
+        if (!selected) return lessonPlan(inLang(lang, P.chooseFirst(choicesText(lang))));
         const right = selected === picking.sign.label;
-        const answer = picking.kind === 'read-pick' ? `video ${picking.options.indexOf(picking.sign) + 1}` : picking.sign.display;
+        const answerAt = picking.options.indexOf(picking.sign);
+        const answer = picking.kind === 'read-pick' ? `video ${answerAt + 1}` : picking.sign.display;
+        const spoken = picking.kind === 'read-pick' ? inLang(lang, P.videoNumber(answerAt + 1)) : picking.sign.display;
         return {
           kind: 'do',
           run: async () => {
             grade(right, answer);
-            return { say: `${right ? "That's right!" : `Not quite. The answer is ${answer}.`} Say "continue".` };
+            return { say: inLang(lang, P.checkResult(right, spoken)) };
           },
         };
       },
-      'learn.continue': () => {
+      'learn.continue': (_slots, lang) => {
         if (finished) return { kind: 'do', run: async () => ({ say: '', after: leaveLesson }) };
-        if (picking && !checked) return lessonPlan(selected ? 'Say "check" first.' : `Choose an answer first. The choices: ${choicesText()}.`);
+        if (picking && !checked) return lessonPlan(inLang(lang, selected ? P.sayCheckFirst : P.chooseFirst(choicesText(lang))));
         return { kind: 'do', run: async () => ({ say: '', after: picking ? afterAnswer : next }) };
       },
-      'learn.hear_steps': () => {
+      'learn.hear_steps': (_slots, lang) => {
         const sign = exercise && exercise.kind !== 'match' ? exercise.sign : null;
-        if (!sign || exercise?.kind === 'read-pick') return lessonPlan('This question has no steps to hear.');
+        if (!sign || exercise?.kind === 'read-pick') return lessonPlan(inLang(lang, P.noStepsHere));
         // A quiz reads the steps without the word: saying it would give the answer away.
-        return lessonPlan(exercise?.kind === 'watch-pick' ? `${stepsOf(sign)} Is it ${choicesText()}?` : `${sign.display}. ${stepsOf(sign)}`);
+        return lessonPlan(exercise?.kind === 'watch-pick' ? inLang(lang, P.stepsWhichOne(stepsOf(sign), choicesText(lang))) : `${sign.display}. ${stepsOf(sign)}`);
       },
-      'learn.skip': () => {
-        if (exercise?.kind === 'do-sign') return { kind: 'do', run: async () => ({ say: 'Skipped.', after: next }) };
-        if (exercise?.kind === 'intro' && tryingIntro) return { kind: 'do', run: async () => ({ say: 'Okay.', after: () => setTryingIntro(false) }) };
-        return lessonPlan('This one can’t be skipped. Answer it, or say "go back" to leave the lesson.');
+      'learn.skip': (_slots, lang) => {
+        if (exercise?.kind === 'do-sign') return { kind: 'do', run: async () => ({ say: inLang(lang, P.skipped), after: next }) };
+        if (exercise?.kind === 'intro' && tryingIntro) {
+          return { kind: 'do', run: async () => ({ say: inLang(lang, P.okay), after: () => setTryingIntro(false) }) };
+        }
+        return lessonPlan(inLang(lang, P.cantSkip));
       },
     },
   });
 
-  // Lessons (not reviews) need a heart to start.
-  if (!review && hearts <= 0 && index === 0 && !finished) {
-    return (
-      <ScreenShell maxWidth={MaxContentWidth.app}>
-        <OutOfHearts onBack={leaveLesson} />
-      </ScreenShell>
-    );
-  }
-
   if (finished) {
     return (
       <ScreenShell maxWidth={MaxContentWidth.app}>
-        <LessonComplete
-          completion={finished.completion}
-          review={review}
-          quizQuestions={quizQuestions}
-          newBadges={finished.newBadges}
-          streak={streakOf(learn.completions, now).current}
-          todayXp={xpOn(learn.completions, manilaDay(now))}
-          dailyGoal={learn.dailyGoal}
-          onContinue={leaveLesson}
-        />
-      </ScreenShell>
-    );
-  }
-
-  if (outOfHearts) {
-    return (
-      <ScreenShell maxWidth={MaxContentWidth.app}>
-        <OutOfHearts onBack={leaveLesson} midLesson />
+        <LessonComplete completion={finished.completion} review={review} quizQuestions={quizQuestions} onContinue={leaveLesson} />
       </ScreenShell>
     );
   }
@@ -320,12 +280,6 @@ function LessonRun({
         >
           <View style={[styles.barFill, { width: `${Math.round(progress * 100)}%` }]} />
         </View>
-        {review ? null : (
-          <View style={styles.hearts} accessible accessibilityLabel={`${hearts} heart${hearts === 1 ? '' : 's'} left`}>
-            <Ionicons name="heart" size={22} color={colors.dangerText} />
-            <Text style={styles.heartsText}>{hearts}</Text>
-          </View>
-        )}
       </View>
 
       <ScrollView key={index} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -358,7 +312,7 @@ function LessonRun({
               />
             ) : (
               <View style={styles.actions}>
-                {online && signReady(models, lesson.course, 'words') ? (
+                {signReady(models, lesson.course, 'words') ? (
                   <Pressable
                     style={styles.secondary}
                     onPress={() => setTryingIntro(true)}
@@ -482,10 +436,6 @@ function LessonRun({
               onMistake={() => {
                 setMistakes((n) => n + 1);
                 say('Not a match.');
-                if (!review) {
-                  learn.loseHeart();
-                  if (heartsNow(learn.hearts, Date.now()).hearts.count <= 1) setOutOfHearts(true);
-                }
               }}
               onDone={() => {
                 setQuizQuestions((n) => n + 1);
@@ -530,28 +480,6 @@ function AnswerBar({
   );
 }
 
-function OutOfHearts({ onBack, midLesson = false }: { onBack: () => void; midLesson?: boolean }) {
-  const styles = useThemedStyles(makeStyles);
-  const { colors } = useAppTheme();
-  const learn = useLearn();
-  const now = useNow();
-  const { nextInMs } = heartsNow(learn.hearts, now);
-  const minutes = nextInMs ? Math.max(1, Math.ceil(nextInMs / 60000)) : null;
-  return (
-    <View style={styles.center}>
-      <Ionicons name="heart-dislike-outline" size={56} color={colors.dangerText} />
-      <Text style={styles.word} accessibilityRole="header">
-        You&apos;re out of hearts
-      </Text>
-      <Text style={styles.centerText}>
-        {midLesson ? 'This lesson stops here. ' : ''}
-        {minutes ? `A heart comes back in ${minutes} min. ` : ''}A unit review fills them up, and camera practice is always free.
-      </Text>
-      <PrimaryButton title="Back to Learn" onPress={onBack} />
-    </View>
-  );
-}
-
 const makeStyles = (t: AppTheme) =>
   StyleSheet.create({
     top: {
@@ -579,17 +507,6 @@ const makeStyles = (t: AppTheme) =>
     barFill: {
       height: '100%',
       backgroundColor: t.colors.primary,
-    },
-    hearts: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      minWidth: 48,
-    },
-    heartsText: {
-      fontSize: t.font(17),
-      fontWeight: t.weight('800'),
-      color: t.colors.textPrimary,
     },
     content: {
       padding: 16,
@@ -686,10 +603,5 @@ const makeStyles = (t: AppTheme) =>
       justifyContent: 'center',
       gap: 14,
       padding: 24,
-    },
-    centerText: {
-      fontSize: t.font(16),
-      color: t.colors.textSecondary,
-      textAlign: 'center',
     },
   });

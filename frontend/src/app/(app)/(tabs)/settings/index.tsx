@@ -3,11 +3,15 @@ import { router, type Href } from 'expo-router';
 import { useSos } from '@/components/sos/SosProvider';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { SectionHeader, SettingRow } from '@/components/ui/SettingRow';
+import { TabHeader } from '@/components/ui/TabHeader';
 import { PALETTE_OPTIONS } from '@/constants/palettes';
 import { PROFILE_LABELS } from '@/constants/profiles';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { usePreferences } from '@/hooks/use-preferences';
+import { useTour } from '@/tutorial/TutorialProvider';
+import { useTourTarget } from '@/tutorial/targets';
+import { announce } from '@/utils/a11y';
 
 const TEXT_SIZE_NAMES: Record<number, string> = { 1: 'Default', 1.15: 'Large', 1.3: 'Larger', 1.5: 'Largest' };
 const THEME_NAMES = { system: 'Follows your phone', light: 'Light', dark: 'Dark' } as const;
@@ -18,9 +22,16 @@ const THEME_NAMES = { system: 'Follows your phone', light: 'Light', dark: 'Dark'
  * phone and works offline.
  */
 export default function SettingsScreen() {
-  const { prefs } = usePreferences();
+  const { prefs, setPref } = usePreferences();
   const { available: sosAvailable } = useSos();
   const styles = useThemedStyles(makeStyles);
+  const needsTarget = useTourTarget('settings.needs');
+  const layaTarget = useTourTarget('settings.laya');
+  const displayTarget = useTourTarget('settings.display');
+  const speechTarget = useTourTarget('settings.speech');
+  const signTarget = useTourTarget('settings.sign');
+  const repliesTarget = useTourTarget('settings.replies');
+  useTour('settings');
 
   const paletteName = PALETTE_OPTIONS.find((option) => option.id === prefs.palette)?.label ?? 'Standard';
   const displaySummary = `${paletteName} colors · ${THEME_NAMES[prefs.theme]} · ${TEXT_SIZE_NAMES[prefs.textScale]} text`;
@@ -37,36 +48,36 @@ export default function SettingsScreen() {
   return (
     <ScreenShell maxWidth={MaxContentWidth.app}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title} accessibilityRole="header">
-          Settings
-        </Text>
-        <Text style={styles.subtitle}>
-          Make AccessAI work the way you need.
-        </Text>
+        <TabHeader title="Settings" />
+        <Text style={styles.subtitle}>Make AccessAI work the way you need.</Text>
 
         <SectionHeader title="You" />
         <View style={styles.card}>
-          <SettingRow
-            icon="accessibility-outline"
-            title="My needs"
-            description={PROFILE_LABELS[prefs.profile].title}
-            onPress={() => router.push('/settings/needs')}
-          />
-          <SettingRow
-            divided
-            icon="mic-circle-outline"
-            title="Accel, voice assistant"
-            description={
-              prefs.accelEnabled
-                ? `On${prefs.accelWakeWord ? ' · Always listening' : ''} · ${prefs.accelVoice === 'woman' ? "Woman's" : prefs.accelVoice === 'man' ? "Man's" : 'App'} voice`
-                : 'Off'
-            }
-            onPress={() => router.push('/settings/accel' as Href)}
-          />
+          <View ref={needsTarget} collapsable={false}>
+            <SettingRow
+              icon="accessibility-outline"
+              title="My needs"
+              description={PROFILE_LABELS[prefs.profile].title}
+              onPress={() => router.push('/settings/needs')}
+            />
+          </View>
+          <View ref={layaTarget} collapsable={false}>
+            <SettingRow
+              divided
+              icon="mic-circle-outline"
+              title="Laya, voice assistant"
+              description={
+                prefs.layaEnabled
+                  ? `On${prefs.layaWakeWord ? ' · Always listening' : ''} · ${prefs.layaVoice === 'woman' ? "Woman's" : prefs.layaVoice === 'man' ? "Man's" : 'App'} voice`
+                  : 'Off'
+              }
+              onPress={() => router.push('/settings/laya' as Href)}
+            />
+          </View>
         </View>
 
         <SectionHeader title="Display" />
-        <View style={styles.card}>
+        <View style={styles.card} ref={displayTarget} collapsable={false}>
           <SettingRow
             icon="contrast-outline"
             title="Display & text"
@@ -77,26 +88,32 @@ export default function SettingsScreen() {
 
         <SectionHeader title="Conversations" />
         <View style={styles.card}>
-          <SettingRow
-            icon="chatbubbles-outline"
-            title="Conversation & speech"
-            description={speechSummary}
-            onPress={() => router.push('/settings/speech')}
-          />
-          <SettingRow
-            divided
-            icon="hand-left-outline"
-            title="Sign language"
-            description={`${prefs.signLanguage.toUpperCase()} · ${prefs.signUnit === 'letters' ? 'Letters' : 'Words'}`}
-            onPress={() => router.push('/settings/sign' as Href)}
-          />
-          <SettingRow
-            divided
-            icon="flash-outline"
-            title="Quick replies"
-            description={prefs.showQuickReplies ? `${prefs.quickReplies.length} saved` : 'Hidden'}
-            onPress={() => router.push('/settings/quick-replies')}
-          />
+          <View ref={speechTarget} collapsable={false}>
+            <SettingRow
+              icon="chatbubbles-outline"
+              title="Conversation & speech"
+              description={speechSummary}
+              onPress={() => router.push('/settings/speech')}
+            />
+          </View>
+          <View ref={signTarget} collapsable={false}>
+            <SettingRow
+              divided
+              icon="hand-left-outline"
+              title="Sign language"
+              description={`${prefs.signLanguage.toUpperCase()} · ${prefs.signUnit === 'letters' ? 'Letters' : 'Words'}`}
+              onPress={() => router.push('/settings/sign' as Href)}
+            />
+          </View>
+          <View ref={repliesTarget} collapsable={false}>
+            <SettingRow
+              divided
+              icon="flash-outline"
+              title="Quick replies"
+              description={prefs.showQuickReplies ? `${prefs.quickReplies.length} saved` : 'Hidden'}
+              onPress={() => router.push('/settings/quick-replies')}
+            />
+          </View>
         </View>
 
         <SectionHeader title="Alerts" />
@@ -125,6 +142,19 @@ export default function SettingsScreen() {
             </View>
           </>
         ) : null}
+
+        <SectionHeader title="Help" />
+        <View style={styles.card}>
+          <SettingRow
+            icon="school-outline"
+            title="Show the tutorial again"
+            description="Each page explains itself again the next time you open it."
+            onPress={() => {
+              setPref('tutorialSeen', []);
+              announce('The tutorial will show again on each page.');
+            }}
+          />
+        </View>
       </ScrollView>
     </ScreenShell>
   );
@@ -137,13 +167,8 @@ const makeStyles = (t: AppTheme) =>
       paddingTop: Spacing.three,
       paddingBottom: Spacing.six,
     },
-    title: {
-      fontSize: t.font(22),
-      fontWeight: t.weight('800'),
-      color: t.colors.textPrimary,
-    },
     subtitle: {
-      marginTop: 6,
+      marginTop: 2,
       fontSize: t.font(14),
       lineHeight: t.lineHeight(20),
       color: t.colors.textSecondary,

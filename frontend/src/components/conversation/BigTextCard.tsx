@@ -21,9 +21,10 @@ function sizeFor(length: number): number {
 }
 
 /**
- * "Show on screen": a message in very large letters for the other person to
- * read — for Deaf or mute users talking face to face. The flip button turns
- * it upside down for someone sitting across the table.
+ * "Big text": a message in very large letters for the other person to read
+ * — for anyone talking face to face, especially Deaf or mute users. The
+ * flip button turns it upside down for someone sitting across the table.
+ * Opened through BigTextHost, from Home, Conversation or Laya.
  */
 export function BigTextCard({ visible, text, onClose }: BigTextCardProps) {
   return (
@@ -49,7 +50,7 @@ function Card({ initialText, onClose }: { initialText: string; onClose: () => vo
         </View>
         <View style={styles.compose}>
           <Text style={styles.composeTitle} accessibilityRole="header">
-            Show on screen
+            Big text
           </Text>
           <Text style={styles.composeHint}>Type what you want the other person to read.</Text>
           <TextInput

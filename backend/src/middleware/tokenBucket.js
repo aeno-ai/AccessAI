@@ -38,6 +38,8 @@ function createTokenBucketLimiter({
   now = Date.now,
   sweepEveryMs = SWEEP_MS,
   log = (line) => console.warn(line),
+  // Told about each refused request (the activity log, HANDOFF.md §41).
+  onRefuse = () => {},
 }) {
   // key → { tokens, updatedAt, refusals, windowStart, blockedUntil }
   const buckets = new Map();
@@ -94,6 +96,7 @@ function createTokenBucketLimiter({
 
     if (bucket.blockedUntil > t) {
       res.set('RateLimit-Remaining', '0');
+      onRefuse(req, { blocked: true });
       return refuse(res, 429, blockedMessage, (bucket.blockedUntil - t) / 1000);
     }
 
@@ -111,6 +114,7 @@ function createTokenBucketLimiter({
     }
     bucket.refusals += 1;
     res.set('RateLimit-Remaining', '0');
+    onRefuse(req, { blocked: bucket.refusals >= blockAfter });
     if (bucket.refusals >= blockAfter) {
       bucket.blockedUntil = t + blockMs;
       bucket.refusals = 0;

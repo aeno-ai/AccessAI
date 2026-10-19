@@ -111,7 +111,7 @@ export function SosFlow({ kind, method, onSent, onQueued, onMarkSafe, onClose }:
     };
   }, []);
 
-  // Started by voice (Accel): the person may not see the screen, so it's
+  // Started by voice (Laya): the person may not see the screen, so it's
   // always spoken.
   const speakOrAnnounce = (text: string) => {
     if (screenReaderOn) announce(text);

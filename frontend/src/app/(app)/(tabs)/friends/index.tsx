@@ -5,11 +5,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { IconButton } from '@/components/ui/IconButton';
 import { ScreenShell } from '@/components/ui/ScreenShell';
+import { TabHeader } from '@/components/ui/TabHeader';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import type { Friend } from '@/db/friends';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { useIsOnline } from '@/hooks/use-is-online';
 import { useFriends } from '@/realtime/FriendsProvider';
+import { useTour } from '@/tutorial/TutorialProvider';
+import { useTourTarget } from '@/tutorial/targets';
 
 function preview(friend: Friend): string {
   if (friend.lastMessage) {
@@ -45,6 +48,8 @@ export default function FriendsScreen() {
   const styles = useThemedStyles(makeStyles);
   const online = useIsOnline();
   const [refreshing, setRefreshing] = useState(false);
+  const addTarget = useTourTarget('friends.add');
+  useTour('friends');
 
   // Shows the friends already on the phone at once; asks the server only if
   // its last answer is over 30 s old (live updates cover the time between).
@@ -65,13 +70,15 @@ export default function FriendsScreen() {
   return (
     <ScreenShell maxWidth={MaxContentWidth.app}>
       <View style={styles.header}>
-        <View style={styles.headerText}>
-          <Text style={styles.title} accessibilityRole="header">
-            Friends
-          </Text>
-          <Text style={styles.subtitle}>Chat online with the same tools as Conversation.</Text>
-        </View>
-        <IconButton icon="person-add-outline" label="Add a friend" variant="tinted" onPress={() => router.push('/friends/add')} />
+        <TabHeader
+          title="Friends"
+          right={
+            <View ref={addTarget} collapsable={false}>
+              <IconButton icon="person-add-outline" label="Add a friend" variant="tinted" onPress={() => router.push('/friends/add')} />
+            </View>
+          }
+        />
+        <Text style={styles.subtitle}>Chat online with the same tools as Conversation.</Text>
       </View>
 
       {!online ? (
@@ -170,23 +177,12 @@ export default function FriendsScreen() {
 const makeStyles = (t: AppTheme) =>
   StyleSheet.create({
     header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
       paddingHorizontal: Spacing.four,
       paddingTop: Spacing.three,
       paddingBottom: Spacing.two,
     },
-    headerText: {
-      flex: 1,
-    },
-    title: {
-      fontSize: t.font(22),
-      fontWeight: t.weight('800'),
-      color: t.colors.textPrimary,
-    },
     subtitle: {
-      marginTop: 4,
+      marginTop: 2,
       fontSize: t.font(13),
       color: t.colors.textSecondary,
     },

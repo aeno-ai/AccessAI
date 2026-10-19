@@ -2,12 +2,13 @@ const fs = require('fs');
 const path = require('path');
 
 // Talks to the Python AI service in the repo's ai/ folder (Ollama + vector
-// search for Accel, MediaPipe + the sign models for sign language). It only
+// search for Laya, MediaPipe + the sign models for sign language). It only
 // listens on this computer (127.0.0.1), so the phone can never reach it
 // directly — every call goes through these authenticated, rate-limited
 // routes first.
 const AI_URL = process.env.AI_SERVICE_URL || `http://127.0.0.1:${process.env.AI_PORT || 8001}`;
-const DEFAULT_TIMEOUT_MS = Number(process.env.ACCEL_AI_TIMEOUT_MS) || 15000;
+// ACCEL_AI_TIMEOUT_MS is the name from before the assistant was renamed Laya.
+const DEFAULT_TIMEOUT_MS = Number(process.env.LAYA_AI_TIMEOUT_MS || process.env.ACCEL_AI_TIMEOUT_MS) || 15000;
 
 // Thrown whenever the AI service can't give a usable answer (not running,
 // still loading its models, too slow, or it refused the request). Routes
@@ -39,7 +40,7 @@ async function callAi(route, { method = 'GET', json, body, headers = {}, timeout
   return data;
 }
 
-// The intent ids Accel may act on — the same list the Python service and the
+// The intent ids Laya may act on — the same list the Python service and the
 // app use (ai/intents.json). Anything else coming back is ignored, so even a
 // confused model can only ever choose from this list.
 // Read on first use (and again while it's missing), so the order things
@@ -52,7 +53,7 @@ function knownIntent(id) {
       const catalog = JSON.parse(fs.readFileSync(file, 'utf8'));
       intentIds = new Set(catalog.intents.map((intent) => intent.id));
     } catch {
-      console.warn('ai/intents.json not found — Accel will only use the rules on the phone.');
+      console.warn('ai/intents.json not found — Laya will only use the rules on the phone.');
       return false;
     }
   }

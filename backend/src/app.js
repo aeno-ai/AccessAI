@@ -119,7 +119,7 @@ app.use('/api/push', pushRoutes);
 const learnRoutes = require('./routes/learnRoutes');
 app.use('/api/learn', learnRoutes);
 
-// ============= AI: Accel voice assistant & sign language ==============
+// ============= AI: Laya voice assistant & sign language ==============
 // Thin, authenticated doors to the Python AI service (ai/ folder, started by
 // `npm run dev`). If that service isn't running, these answer 503 and the
 // app falls back to what works on the phone.
@@ -135,9 +135,12 @@ app.use('/api/sign', signRoutes);
 const adminAuthRoutes = require('./routes/adminAuthRoutes');
 const adminUserRoutes = require('./routes/adminUserRoutes');
 const adminAccountRoutes = require('./routes/adminAccountRoutes');
+const adminRecordsRoutes = require('./routes/adminRecordsRoutes');
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/users', adminUserRoutes);
 app.use('/api/admin/admins', adminAccountRoutes);
+// /api/admin/activity, /sos and /review (activity log, SOS records, "Needs a look").
+app.use('/api/admin', adminRecordsRoutes);
 
 // ============= 404 ==============
 app.use((req, res) => {
@@ -170,6 +173,9 @@ const shortReason = (err) =>
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
+  // The phone hung up before its request had fully arrived (an app reload,
+  // a dropped connection). Nobody is left to answer, and nothing happened.
+  if (err.type === 'request.aborted') return res.status(400).end();
   const [status, message] = friendlyError(err);
   // A bad request (e.g. broken JSON) is one short line; only real faults on
   // our side get the full error and stack trace.

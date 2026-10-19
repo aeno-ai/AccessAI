@@ -36,9 +36,9 @@ type SosContextValue = {
   openReview: () => void;
   /** Settings → Test SOS: the countdown, marked as a test. */
   startTest: () => void;
-  /** Accel ("send SOS"): the countdown, which can still be cancelled. */
+  /** Laya ("send SOS"): the countdown, which can still be cancelled. */
   startCountdown: (method: SosMethod) => void;
-  /** True while the SOS dialog is open (Accel and "Hey Accel" stay quiet then). */
+  /** True while the SOS dialog is open (Laya and "Hey Laya" stay quiet then). */
   flowOpen: boolean;
   /**
    * "I'm safe": ends the user's active SOS and tells their friends — or, if
@@ -60,7 +60,7 @@ const RESEND_AFTER_MS = 2 * 60 * 1000;
 
 /**
  * Owns the SOS flow for the whole app, so any trigger — the hold button on
- * Home, shaking the phone on any screen, the test in Settings, Accel — opens
+ * Home, shaking the phone on any screen, the test in Settings, Laya — opens
  * the same dialog. SOS is for PWD accounts (the backend refuses others); it's
  * only switched off when the role is known to be non-PWD, so an emergency
  * button never silently vanishes because the role couldn't be read.

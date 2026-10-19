@@ -32,6 +32,26 @@ export const Notifications: NotificationsModule | null = pushSupported
 
 const DEVICE_ID_KEY = 'device:id:v1';
 const REGISTERED_KEY = 'push:registered:v1';
+// The phone's own push token and the Expo address made from it, so the same
+// phone token never asks Expo's server again.
+const DEVICE_TOKEN_KEY = 'push:device:v1';
+
+type DevicePushToken = Awaited<ReturnType<NonNullable<NotificationsModule>['getDevicePushTokenAsync']>>;
+
+// The newest phone push token this app has seen. Asking Android for it also
+// fires the "token changed" event with the same token — comparing against
+// this is what stops that event from starting another registration (which
+// used to loop for as long as someone was signed in).
+let lastDeviceToken: string | null = null;
+
+/** The phone push token the last registration used (null before the first). */
+export function lastKnownDeviceToken(): string | null {
+  return lastDeviceToken;
+}
+
+// One registration at a time: a second call for the same account while one
+// is running gets the same answer instead of starting its own.
+let running: { userId: string; done: Promise<'on' | 'off' | 'denied'> } | null = null;
 
 /** A random id for this phone, so signing in again replaces its old address. */
 async function deviceId(): Promise<string> {
@@ -83,11 +103,44 @@ async function ensureChannels(): Promise<void> {
   });
 }
 
+/** The Expo address for this phone token — from the phone's memory when it's the same token as before. */
+async function expoTokenFor(device: DevicePushToken, projectId: string | undefined): Promise<string> {
+  const deviceToken = String(device.data);
+  try {
+    const saved = JSON.parse((await AsyncStorage.getItem(DEVICE_TOKEN_KEY)) ?? 'null') as {
+      device?: string;
+      expo?: string;
+      projectId?: string;
+    } | null;
+    if (saved?.device === deviceToken && saved.projectId === projectId && saved.expo) return saved.expo;
+  } catch {
+    // Unreadable — ask Expo again.
+  }
+  const { data: expo } = await Notifications!.getExpoPushTokenAsync({ ...(projectId ? { projectId } : {}), devicePushToken: device });
+  await AsyncStorage.setItem(DEVICE_TOKEN_KEY, JSON.stringify({ device: deviceToken, expo, projectId }));
+  return expo;
+}
+
 /**
  * Asks permission (once) and saves this phone's push address for `userId`.
  * Quietly does nothing if push can't work here or the person said no.
+ * `device`: the new phone token from a "token changed" event, if that's what
+ * started this (so the phone isn't asked again).
  */
-export async function registerForPush(userId: string): Promise<'on' | 'off' | 'denied'> {
+export function registerForPush(userId: string, device?: DevicePushToken): Promise<'on' | 'off' | 'denied'> {
+  if (running?.userId === userId && !device) return running.done;
+  const previous = running?.done ?? Promise.resolve('off' as const);
+  const done = previous
+    .catch(() => 'off' as const)
+    .then(() => register(userId, device))
+    .finally(() => {
+      if (running?.done === done) running = null;
+    });
+  running = { userId, done };
+  return done;
+}
+
+async function register(userId: string, newDevice?: DevicePushToken): Promise<'on' | 'off' | 'denied'> {
   if (!Notifications) return 'off';
   try {
     await ensureChannels(); // Android 13+ only shows the permission prompt after a channel exists
@@ -97,8 +150,10 @@ export async function registerForPush(userId: string): Promise<'on' | 'off' | 'd
     }
     if (!granted) return 'denied';
 
+    const device = newDevice ?? (await Notifications.getDevicePushTokenAsync());
+    lastDeviceToken = String(device.data);
     const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
-    const { data: token } = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+    const token = await expoTokenFor(device, projectId);
     const id = await deviceId();
     const already = await AsyncStorage.getItem(REGISTERED_KEY);
     if (already !== `${userId}:${token}`) {
@@ -116,19 +171,31 @@ export async function registerForPush(userId: string): Promise<'on' | 'off' | 'd
   }
 }
 
-/** Signing out: this phone stops getting this account's notifications. */
+/**
+ * This phone's id, sent with POST /auth/logout so the server drops its
+ * push address. Null where push doesn't work (nothing to drop).
+ */
+export async function pushDeviceId(): Promise<string | null> {
+  if (!Notifications) return null;
+  try {
+    return await deviceId();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Signing out, on this phone: forgets the registration and clears its
+ * notifications. The server drops the address through POST /auth/logout
+ * (use-bootstrap signOut); offline, it's dropped when the next person signs
+ * in on this phone (backend pushController).
+ */
 export async function unregisterPush(): Promise<void> {
   if (!Notifications) return;
   try {
     await AsyncStorage.removeItem(REGISTERED_KEY);
-    await apiFetch('/push/token', {
-      method: 'DELETE',
-      timeoutMs: 3000,
-      body: JSON.stringify({ deviceId: await deviceId() }),
-    });
     await Notifications.dismissAllNotificationsAsync();
   } catch {
-    // Offline: the server also drops the address when the next person signs
-    // in on this phone (backend pushController).
+    // Nothing else to do.
   }
 }

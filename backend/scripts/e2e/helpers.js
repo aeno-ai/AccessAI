@@ -11,11 +11,22 @@ const User = require('../../src/models/Users');
 const Friendship = require('../../src/models/Friendship');
 const { signUserToken } = require('../../src/utils/userSession');
 const { purgeUser } = require('../../src/utils/accountDeletion');
+const Admin = require('../../src/models/Admin');
+const AdminAuditLog = require('../../src/models/AdminAuditLog');
+const UserActivity = require('../../src/models/UserActivity');
+const jwt = require('jsonwebtoken');
 
 const BASE = process.env.E2E_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 const created = [];
+const createdAdmins = [];
 const sockets = [];
+const startedAt = new Date();
+// A made-up network address for this run (198.18.0.0/15 is for tests). The
+// server trusts the address passed along from this computer, so checks that
+// use it get their own login limit (20 failed tries per 15 minutes per
+// address) and can run many times in a row.
+const runAddress = { 'X-Forwarded-For': `198.18.${crypto.randomInt(256)}.${1 + crypto.randomInt(254)}` };
 let passed = 0;
 let failed = 0;
 
@@ -60,12 +71,17 @@ async function befriend(a, b, { aAddsBToSos = false } = {}) {
   });
 }
 
-async function api(method, route, token, body) {
+// `headers`: extra ones, e.g. the app's X-App-Platform / X-App-Version.
+async function api(method, route, token, body, headers = {}) {
   const response = await fetch(`${BASE}/api${route}`, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers },
     body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
   });
+  return answerOf(response);
+}
+
+async function answerOf(response) {
   const text = await response.text();
   let data;
   try {
@@ -79,6 +95,36 @@ async function api(method, route, token, body) {
     json: (response.headers.get('content-type') ?? '').includes('json'),
     headers: response.headers,
   };
+}
+
+// An admin-panel account ('super_admin' or 'admin') with a session, as if
+// it had logged in (the same token utils/adminSession.js issues).
+async function makeAdmin(role) {
+  const id = crypto.randomBytes(5).toString('hex');
+  const admin = await Admin.create({
+    email: `e2e-admin-${id}@example.test`,
+    password: 'not-a-real-hash',
+    name: `E2E ${role}`,
+    role,
+    mustChangePassword: false,
+  });
+  createdAdmins.push(admin._id);
+  const session = jwt.sign({ adminId: String(admin._id), tv: admin.tokenVersion }, process.env.ADMIN_JWT_SECRET, {
+    expiresIn: 3600,
+    audience: 'accessai-admin',
+    algorithm: 'HS256',
+  });
+  return { id: String(admin._id), session };
+}
+
+// A call to /api/admin… with that admin's session cookie (none: logged out).
+async function adminApi(method, route, admin, body) {
+  const response = await fetch(`${BASE}/api/admin${route}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(admin ? { Cookie: `admin_session=${admin.session}` } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return answerOf(response);
 }
 
 // A live socket like the app's, collecting every event it receives.
@@ -121,9 +167,19 @@ async function cleanup() {
   for (const id of created) {
     await purgeUser(id).catch((error) => console.error('cleanup failed for', id, error.message));
   }
+  await Admin.deleteMany({ _id: { $in: createdAdmins } });
+  await AdminAuditLog.deleteMany({ adminId: { $in: createdAdmins } });
+  // Failed logins with emails that have no account aren't tied to anyone;
+  // this run's (from this computer) go too, so "Needs a look" doesn't fill
+  // up with test runs.
+  await UserActivity.deleteMany({
+    userId: { $exists: false },
+    createdAt: { $gte: startedAt },
+    ip: { $in: ['127.0.0.1', '::1', runAddress['X-Forwarded-For']] },
+  });
   await mongoose.disconnect();
 }
 
 const summary = () => ({ passed, failed });
 
-module.exports = { BASE, check, connect, makeUser, befriend, api, openSocket, waitFor, sleep, cleanup, summary };
+module.exports = { BASE, runAddress, check, connect, makeUser, makeAdmin, befriend, api, adminApi, openSocket, waitFor, sleep, cleanup, summary };

@@ -2,7 +2,7 @@
   "expo": {
     "name": "AccessAI",
     "slug": "frontend",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
@@ -10,8 +10,8 @@
     "ios": {
       "icon": "./assets/images/icon.png",
       "infoPlist": {
-        "NSSpeechRecognitionUsageDescription": "Allow AccessAI to turn what's said in a conversation, and your voice commands to Accel, into text.",
-        "NSMicrophoneUsageDescription": "Allow AccessAI to use the microphone to turn what's said in a conversation, and your voice commands to Accel, into text."
+        "NSSpeechRecognitionUsageDescription": "Allow AccessAI to turn what's said in a conversation, and your voice commands to Laya, into text.",
+        "NSMicrophoneUsageDescription": "Allow AccessAI to use the microphone to turn what's said in a conversation, and your voice commands to Laya, into text."
       }
     },
     "android": {
@@ -69,8 +69,8 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow AccessAI to use the microphone to turn what's said in a conversation, and your voice commands to Accel, into text.",
-          "speechRecognitionPermission": "Allow AccessAI to turn what's said in a conversation, and your voice commands to Accel, into text.",
+          "microphonePermission": "Allow AccessAI to use the microphone to turn what's said in a conversation, and your voice commands to Laya, into text.",
+          "speechRecognitionPermission": "Allow AccessAI to turn what's said in a conversation, and your voice commands to Laya, into text.",
           "androidSpeechServicePackages": [
             "com.google.android.googlequicksearchbox",
             "com.google.android.as"

@@ -2,9 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import type { Plan } from '@/accel/actions';
-import { useAccelScreen } from '@/accel/screenContext';
-import { BigTextCard } from '@/components/conversation/BigTextCard';
+import type { Plan } from '@/laya/actions';
+import { inLang, P, type Lang, type Line } from '@/laya/phrases';
+import { useLayaScreen } from '@/laya/screenContext';
+import { useTour } from '@/tutorial/TutorialProvider';
+import { useTourTarget } from '@/tutorial/targets';
+import { useBigText } from '@/components/conversation/BigTextHost';
 import { Composer, type ComposerHandle } from '@/components/conversation/Composer';
 import { MessageBubble } from '@/components/conversation/MessageBubble';
 import { RenameConversationModal } from '@/components/conversation/RenameConversationModal';
@@ -27,7 +30,7 @@ import { usePreferences } from '@/hooks/use-preferences';
 import { useScreenReader } from '@/hooks/use-screen-reader';
 import { announce } from '@/utils/a11y';
 import { unnamedConversationTitle } from '@/utils/conversationTitle';
-import { whenText } from '@/utils/dates';
+import { whenTextIn } from '@/utils/dates';
 import { speakMixed, stopMixed } from '@/utils/speechHelper';
 import { goBack } from '@/utils/navigation';
 
@@ -90,7 +93,7 @@ export default function ConversationScreen() {
   const [activeSpeaker, setActiveSpeaker] = useState<Speaker>('me');
   const [renaming, setRenaming] = useState(false);
   // A message shown full-screen for the other person to read.
-  const [bigText, setBigText] = useState<string | null>(null);
+  const bigText = useBigText();
   // The Home-shortcut action whose "skip naming" was undone by starting a
   // new conversation (see skipNaming below).
   const [dismissedActionKey, setDismissedActionKey] = useState<string | null>(null);
@@ -134,7 +137,7 @@ export default function ConversationScreen() {
   }, []);
 
   // Chats' "New conversation": a fresh one, starting with its name. Each tap
-  // carries a different `new`, so it works every time. Accel's "start a
+  // carries a different `new`, so it works every time. Laya's "start a
   // conversation called Ate Lyka" brings the name too (`title`).
   const handledNewKey = useRef<string | null>(null);
   useEffect(() => {
@@ -231,16 +234,9 @@ export default function ConversationScreen() {
         return;
       }
       handledAction.current = actionKey;
-      if (action === 'captions') {
-        setActiveSpeaker('them');
-        composer.startListening();
-      } else if (action === 'listen') {
+      if (action === 'listen') {
         setActiveSpeaker('me');
         composer.startListening();
-      } else if (action === 'sign') {
-        composer.setSignMode(true);
-      } else if (action === 'type') {
-        composer.focusInput();
       } else if (action === 'replies') {
         composer.showReplies();
       }
@@ -301,7 +297,7 @@ export default function ConversationScreen() {
     }
   };
 
-  // `as`: Accel's "say …" sends as Me and always speaks it.
+  // `as`: Laya's "say …" sends as Me and always speaks it.
   const handleSend = async (body: string, as?: { speaker: Speaker; speakAloud: boolean }): Promise<boolean> => {
     const session = sessionRef.current;
     const speaker = as?.speaker ?? activeSpeaker;
@@ -336,17 +332,17 @@ export default function ConversationScreen() {
   // Start needs a name; Skip is for starting without one.
   const typedName = nameInput.trim();
 
-  // ---- Accel: the whole conversation by voice. Each command runs what its
-  // button runs; Accel has closed (and freed the mic) before `after` runs.
+  // ---- Laya: the whole conversation by voice. Each command runs what its
+  // button runs; Laya has closed (and freed the mic) before `after` runs.
   // The message box isn't there while the naming step shows: voice skips it.
   const whenComposer = (then: (composer: ComposerHandle) => void) => {
     if (showNamingPrompt) confirmName('');
     setTimeout(() => composerRef.current && then(composerRef.current), showNamingPrompt ? 300 : 0);
   };
-  const turn = (speaker: Speaker): Plan => ({
+  const turn = (speaker: Speaker, lang: Lang): Plan => ({
     kind: 'do',
     run: async () => ({
-      say: speaker === 'me' ? 'Your turn. Start talking after the beep.' : "Their turn. I'm listening to them.",
+      say: inLang(lang, speaker === 'me' ? P.yourTurn : P.theirTurn),
       after: () =>
         whenComposer((composer) => {
           setActiveSpeaker(speaker);
@@ -354,111 +350,111 @@ export default function ConversationScreen() {
         }),
     }),
   });
-  const sayAloud = (text: string): Plan => ({
+  const sayAloud = (text: string, lang: Lang): Plan => ({
     kind: 'confirm',
-    question: `Say "${text}"?`,
+    question: inLang(lang, P.sayQuestion(text)),
     run: async () => {
       if (showNamingPrompt) confirmName('');
       await handleSend(text, { speaker: 'me', speakAloud: true });
       return { say: '' };
     },
   });
-  const lineOf = (message: Message) => `${message.sender === 'me' ? 'You' : 'They'} said: ${message.body}`;
-  useAccelScreen({
+  useLayaScreen({
     name: 'Conversation mode',
-    describe: () => {
+    describe: (lang) => {
+      const t = (line: Line) => inLang(lang, line);
       const title = conversationTitle ? `${conversationTitle}. ` : '';
-      if (showNamingPrompt) return 'A new conversation. It asks for a name: type one, or say "my turn" to start without one.';
+      if (showNamingPrompt) return t(P.convNaming);
       const last = messages[messages.length - 1];
-      if (!last) return `${title}No messages yet. Say "my turn" to talk, or "their turn" to listen to the other person.`;
-      const count = messages.length === 1 ? '1 message' : `${messages.length} messages`;
-      return `${title}${count}. ${last.sender === 'me' ? 'You' : 'They'} spoke last, ${whenText(last.createdAt)}. It's ${activeSpeaker === 'me' ? 'your' : 'their'} turn.`;
+      if (!last) return t(P.convEmpty(title));
+      return t(P.convState(title, messages.length, last.sender === 'me', whenTextIn(lang, last.createdAt), activeSpeaker === 'me'));
     },
-    examples: ['my turn', 'their turn', 'read what they said', 'say, I need to go to the clinic', 'quick replies', 'end the conversation'],
+    examples: (lang) =>
+      lang === 'fil'
+        ? ['ako na', 'siya na', 'ano sinabi niya', 'sabihin mo kailangan kong pumunta sa clinic', 'mga quick reply', 'tapusin ang usapan']
+        : ['my turn', 'their turn', 'read what they said', 'say, I need to go to the clinic', 'quick replies', 'end the conversation'],
     commands: {
-      'conv.start': (slots) => ({
+      'conv.start': (slots, lang) => ({
         kind: 'confirm',
-        question: slots.friendName ? `Start a new conversation called ${slots.friendName}?` : 'Start a new conversation?',
+        question: inLang(lang, slots.friendName ? P.startNamedQuestion(slots.friendName) : P.startUnnamedQuestion),
         run: async () => {
           if (slots.friendName) startNewConversation(slots.friendName);
           else {
             startNewConversation();
             confirmName(''); // by voice, no naming step: it's titled by its date
           }
-          return {
-            say: slots.friendName
-              ? `New conversation, ${slots.friendName}. Say "my turn" to talk.`
-              : 'New conversation. To name it, say "rename it to", then the name.',
-          };
+          return { say: inLang(lang, slots.friendName ? P.newConversationNamed(slots.friendName) : P.newConversationUnnamed) };
         },
       }),
-      'conv.my_turn': () => turn('me'),
-      'conv.their_turn': () => turn('them'),
-      'conv.say': (slots) =>
+      'conv.my_turn': (_slots, lang) => turn('me', lang),
+      'conv.their_turn': (_slots, lang) => turn('them', lang),
+      'conv.say': (slots, lang) =>
         slots.messageText
-          ? sayAloud(slots.messageText)
-          : { kind: 'ask', question: 'What should I say?', answer: async (text) => sayAloud(text.trim()) },
-      'conv.read_last': () => {
+          ? sayAloud(slots.messageText, lang)
+          : { kind: 'ask', question: inLang(lang, P.whatShouldISay), answer: async (text) => sayAloud(text.trim(), lang) },
+      'conv.read_last': (_slots, lang) => {
         const last = [...messages].reverse().find((message) => message.sender === 'them');
-        return { kind: 'say', text: last ? `They said, ${whenText(last.createdAt)}: ${last.body}` : "They haven't said anything yet." };
+        return { kind: 'say', text: inLang(lang, last ? P.theySaid(whenTextIn(lang, last.createdAt), last.body) : P.theyHaventSpoken) };
       },
-      'conv.read_all': () => {
-        if (!messages.length) return { kind: 'say', text: 'No messages yet.' };
+      'conv.read_all': (_slots, lang) => {
+        if (!messages.length) return { kind: 'say', text: inLang(lang, P.noMessagesYet) };
         const recent = messages.slice(-5);
-        const more = messages.length > recent.length ? ` Those were the last 5 of ${messages.length} messages.` : '';
-        return { kind: 'say', text: `${recent.map(lineOf).join('. ')}.${more}` };
+        const more = messages.length > recent.length ? inLang(lang, P.lastFiveOf(messages.length)) : '';
+        const lines = recent.map((message) => inLang(lang, P.convLine(message.sender === 'me', message.body)));
+        return { kind: 'say', text: `${lines.join('. ')}.${more}` };
       },
-      'conv.quick_replies': () => {
+      'conv.quick_replies': (_slots, lang) => {
         const replies = prefs.quickReplies;
-        if (!replies.length) return { kind: 'say', text: 'You have no quick replies. Add them in Settings, Quick replies.' };
+        if (!replies.length) return { kind: 'say', text: inLang(lang, P.noQuickReplies) };
         const list = replies.slice(0, 8).map((reply, i) => `${i + 1}: ${reply}`).join('. ');
         return {
           kind: 'do',
           run: async () => ({
-            say: `Your quick replies. ${list}. To say one, say "quick reply" and its number.`,
+            say: inLang(lang, P.yourQuickReplies(list)),
             after: () => whenComposer((composer) => composer.showReplies()),
           }),
         };
       },
-      'conv.say_reply': (slots) => {
+      'conv.say_reply': (slots, lang) => {
         const reply = slots.number ? prefs.quickReplies[slots.number - 1] : undefined;
-        if (!reply) {
-          return { kind: 'say', text: `Which one? You have ${prefs.quickReplies.length} quick replies. Say "quick replies" to hear them.` };
-        }
-        return sayAloud(reply);
+        if (!reply) return { kind: 'say', text: inLang(lang, P.whichQuickReply(prefs.quickReplies.length)) };
+        return sayAloud(reply, lang);
       },
-      'conv.sign_mode': (slots) => {
+      'conv.sign_mode': (slots, lang) => {
         const on = slots.on ?? true;
         return {
           kind: 'do',
           run: async () => ({
-            say: on ? 'Sign language mode is on. The other person can sign to the camera.' : 'Sign language mode is off.',
+            say: inLang(lang, on ? P.signModeOn : P.signModeOff),
             after: () => whenComposer((composer) => composer.setSignMode(on)),
           }),
         };
       },
-      'conv.rename': (slots) => {
+      'conv.rename': (slots, lang) => {
         const rename = (name: string): Plan => ({
           kind: 'confirm',
-          question: `Rename this conversation to ${name}?`,
+          question: inLang(lang, P.renameQuestion(name)),
           run: async () => {
             if (showNamingPrompt) confirmName(name);
             else await handleRename(name);
-            return { say: `Renamed to ${name}.` };
+            return { say: inLang(lang, P.renamed(name)) };
           },
         });
         return slots.friendName
           ? rename(slots.friendName.slice(0, 100))
-          : { kind: 'ask', question: 'What should I call it?', answer: async (text) => rename(text.trim().slice(0, 100)) };
+          : { kind: 'ask', question: inLang(lang, P.whatToCallIt), answer: async (text) => rename(text.trim().slice(0, 100)) };
       },
-      'conv.end': () => ({
+      'conv.end': (_slots, lang) => ({
         kind: 'confirm',
-        question: messages.length ? "End this conversation? It's already saved in Chats." : 'Leave Conversation mode?',
-        run: async () => ({ say: messages.length ? 'Saved. Going back.' : 'Going back.', after: () => goBack() }),
+        question: inLang(lang, messages.length ? P.endConversationQuestion : P.leaveConversationQuestion),
+        run: async () => ({ say: inLang(lang, messages.length ? P.savedGoingBack : P.goingBack), after: () => goBack() }),
       }),
     },
   });
   const headerReady = (namingDone || skipNaming) && !loadingExisting;
+  // The first-time tour, once the message box is on screen (after naming).
+  useTour('conversation', headerReady);
+  const speakerTarget = useTourTarget('conv.speaker');
 
   return (
     <ScreenShell maxWidth={MaxContentWidth.app}>
@@ -565,7 +561,7 @@ export default function ConversationScreen() {
                     sender={item.sender}
                     createdAt={item.createdAt}
                     senderName={SPEAKER_NAMES[item.sender]}
-                    onShowBig={() => setBigText(item.body)}
+                    onShowBig={() => bigText.show(item.body)}
                   />
                 )}
                 contentContainerStyle={styles.messageList}
@@ -579,9 +575,16 @@ export default function ConversationScreen() {
               controlRef={composerRef}
               onSend={handleSend}
               listeningTo={SPEAKER_NAMES[activeSpeaker]}
+              tourTargets
               aboveInput={
                 // Who's about to talk: one compact switch.
-                <View style={styles.speakerRow} accessibilityRole="radiogroup" accessibilityLabel="Who is speaking">
+                <View
+                  ref={speakerTarget}
+                  collapsable={false}
+                  style={styles.speakerRow}
+                  accessibilityRole="radiogroup"
+                  accessibilityLabel="Who is speaking"
+                >
                   {(['me', 'them'] as const).map((speaker) => {
                     const selected = activeSpeaker === speaker;
                     return (
@@ -606,7 +609,6 @@ export default function ConversationScreen() {
         )}
       </KeyboardAvoider>
 
-      <BigTextCard visible={bigText !== null} text={bigText ?? undefined} onClose={() => setBigText(null)} />
 
       <RenameConversationModal
         visible={renaming}

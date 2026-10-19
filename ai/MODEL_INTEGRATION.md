@@ -7,7 +7,7 @@ How to plug models into AccessAI later — and what to check each time.
 | [A. The four sign model slots](#a-the-four-sign-model-slots) | Any time you drop in a sign model |
 | [B. Retrained word models](#b-retrained--improved-word-models) | A better FSL-105 / WLASL run, or more signs |
 | [C. Letters (fingerspelling) models](#c-letters-fingerspelling-models) | When the letters models are trained |
-| [D. Accel's AI models and commands](#d-accels-ai-models-and-commands) | Changing the LLM / embeddings, adding a voice command |
+| [D. Laya's AI models and commands](#d-layas-ai-models-and-commands) | Changing the LLM / embeddings, adding a voice command |
 | [E. Sign recognition on the phone](#e-moving-sign-recognition-onto-the-phone-offline) | Making sign language work without the laptop |
 | [F. Quick reference](#f-quick-reference) | Every command in one table |
 
@@ -152,7 +152,7 @@ Drop the files into `ai/models/sign/<fsl|asl>/letters/` (the `PUT_MODEL_FILES_HE
 
 ---
 
-## D. Accel's AI models and commands
+## D. Laya's AI models and commands
 
 ### Swapping the models
 In `backend/.env` (the AI service reads them through `npm run dev`):
@@ -187,27 +187,27 @@ If accuracy drops, tune the thresholds (`ai/app/config.py`, or in `backend/.env`
 
 Different embedding models give different similarity ranges, so re-tune after changing `AI_EMBED_MODEL`. `explain` shows the scores.
 
-### Adding a new Accel command (checklist)
+### Adding a new Laya command (checklist)
 1. **`ai/intents.json`**: a new entry with `id` (e.g. `nav.learn_lesson`), a clear `description`, `slots` (from `friendName`, `messageText`, `friendCode`, `value`), and **10+ examples** in English, Filipino and Taglish.
-2. **`frontend/src/accel/catalog.ts`**: the same id with `label`, `category`, `confirm`, and a `guide` example (it shows on the "What Accel can do" screen).
-3. **`frontend/src/accel/actions.ts`**: what it does, inside `planFor()`. Use `confirm` (a yes/no question) for anything that changes something or moves the user; `say` for read-aloud only. **Accel only speaks fixed sentences from here**, never AI text.
-4. **`frontend/src/accel/rules.ts`** (optional but good): a pattern so it works **offline and instantly**. Put it *before* more general rules.
+2. **`frontend/src/laya/catalog.ts`**: the same id with `label`, `category`, `confirm`, and a `guide` example (it shows on the "What Laya can do" screen).
+3. **`frontend/src/laya/actions.ts`**: what it does, inside `planFor()`. Use `confirm` (a yes/no question) for anything that changes something or moves the user; `say` for read-aloud only. **Laya only speaks fixed sentences from here**, never AI text.
+4. **`frontend/src/laya/rules.ts`** (optional but good): a pattern so it works **offline and instantly**. Put it *before* more general rules.
 5. Checks:
    ```powershell
    cd frontend
-   node scripts/check-accel-catalog.mjs          # same ids in the app and the AI service
-   npx tsx scripts/accel-rules-check.ts          # add a few cases for the new rule first
+   node scripts/check-laya-catalog.mjs          # same ids in the app and the AI service
+   npx tsx scripts/laya-rules-check.ts          # add a few cases for the new rule first
    cd ..\ai
    .venv\Scripts\python -m app.eval              # add 2–3 NEW sentences to eval.jsonl first (never copy them into intents.json)
    ```
-6. If a new slot or new screen is needed: also `ai/app/interpret.py` (the slot schema and checks), `backend/src/controllers/assistantController.js` (the slot whitelist), and `frontend/src/accel/screens.ts` ("where am I", "what's on this screen", "what can I do here").
-7. **A command for one screen only** (like "my turn" in Conversation mode): give it `screen: '<the screen's name>'` in `catalog.ts`, put its rule in `SCREEN_RULES` in `rules.ts` (tried first, but only while that screen is open; `hereOnly` if it means nothing elsewhere, like "continue"), and its handler in that screen's `useAccelScreen({ commands })` (`frontend/src/accel/screenContext.ts`), next to the button it does the same as. Don't add it to `planFor()`: asked on another screen, Accel says where it works.
+6. If a new slot or new screen is needed: also `ai/app/interpret.py` (the slot schema and checks), `backend/src/controllers/assistantController.js` (the slot whitelist), and `frontend/src/laya/screens.ts` ("where am I", "what's on this screen", "what can I do here").
+7. **A command for one screen only** (like "my turn" in Conversation mode): give it `screen: '<the screen's name>'` in `catalog.ts`, put its rule in `SCREEN_RULES` in `rules.ts` (tried first, but only while that screen is open; `hereOnly` if it means nothing elsewhere, like "continue"), and its handler in that screen's `useLayaScreen({ commands })` (`frontend/src/laya/screenContext.ts`), next to the button it does the same as. Don't add it to `planFor()`: asked on another screen, Laya says where it works.
 
 ### Guardrails that must stay
 - The LLM's `intent` is an **enum of the shortlist** (Ollama JSON schema), and is re-checked in Python, Node and the app.
 - The sentence is passed as data in `<command>` tags; account actions exist only as `blocked.account`, which is refused by voice.
 - `messageText` must be made of words actually said.
-- Accel confirms with **yes/no** before acting, and speaks only fixed sentences.
+- Laya confirms with **yes/no** before acting, and speaks only fixed sentences.
 - No transcripts are stored; the AI service listens only on 127.0.0.1.
 
 ### Hosting the AI for real users (later)
@@ -251,10 +251,10 @@ Today it runs on the laptop. For real users, run the same `ai/` service plus Oll
 |---|---|---|
 | See which sign models loaded | the `[ai] Sign model …` lines of `npm run dev`, or `curl http://127.0.0.1:8001/sign/models` | `backend/` |
 | Check the sign pipeline against the tester | `.venv\Scripts\python -m app.sign_check [tester path]` | `ai/` |
-| Accel accuracy on held-out sentences | `.venv\Scripts\python -m app.eval` | `ai/` |
-| See one Accel decision step by step | `.venv\Scripts\python -m app.explain "sentence"` | `ai/` |
-| App ↔ AI action ids match | `node scripts/check-accel-catalog.mjs` | `frontend/` |
-| Accel offline rules | `npx tsx scripts/accel-rules-check.ts` | `frontend/` |
+| Laya accuracy on held-out sentences | `.venv\Scripts\python -m app.eval` | `ai/` |
+| See one Laya decision step by step | `.venv\Scripts\python -m app.explain "sentence"` | `ai/` |
+| App ↔ AI action ids match | `node scripts/check-laya-catalog.mjs` | `frontend/` |
+| Laya offline rules | `npx tsx scripts/laya-rules-check.ts` | `frontend/` |
 | Everything through the backend (incl. a sign session) | `npm run e2e` (or `npm run e2e -- ai`) | `backend/` |
 
 | Integration | Files you touch |
@@ -263,5 +263,5 @@ Today it runs on the laptop. For real users, run the same `ai/` service plus Oll
 | Letters model, same input as words | `ai/models/sign/<lang>/letters/{model.keras,labels.json}` (+ `meta.example.json` → `meta.json` if needed) |
 | Letters model, one hand one frame | the above with `meta.hand21.example.json` → `meta.json`, plus the notebook's normalization in `normalize_hand()` (`registry.py`) |
 | Different chat / embedding model | `backend/.env` (`AI_CHAT_MODEL`, `AI_EMBED_MODEL`), maybe thresholds |
-| New Accel command | `ai/intents.json`, `accel/catalog.ts`, `accel/actions.ts`, `accel/rules.ts`, `ai/eval.jsonl` |
+| New Laya command | `ai/intents.json`, `laya/catalog.ts`, `laya/actions.ts`, `laya/rules.ts`, `ai/eval.jsonl` |
 | On-phone sign | new `frontend/src/sign/*`, a new hook beside `use-sign-recognition.ts`, `prefs.signEngine`, native libraries + rebuild |

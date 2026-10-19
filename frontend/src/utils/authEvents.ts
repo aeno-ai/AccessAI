@@ -6,7 +6,13 @@
  * the user out immediately, even mid-session (not just at app boot).
  */
 
-type Listener = () => void;
+/**
+ * Why the server signed this phone out, when it says (an admin paused the
+ * account, or is deleting it). The login screen shows `message`.
+ */
+export type SignOutReason = { code: string; message: string };
+
+type Listener = (reason: SignOutReason | null) => void;
 
 const listeners = new Set<Listener>();
 
@@ -17,8 +23,8 @@ export function onUnauthorized(listener: Listener): () => void {
   };
 }
 
-export function emitUnauthorized(): void {
+export function emitUnauthorized(reason: SignOutReason | null = null): void {
   for (const listener of listeners) {
-    listener();
+    listener(reason);
   }
 }

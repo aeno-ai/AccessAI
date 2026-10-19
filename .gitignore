@@ -63,6 +63,11 @@ __pycache__/
 ai/models/**/*.keras
 ai/models/**/*.tflite
 
+# Learn's original sign recordings (about 900 MB). Only the compressed copies
+# in frontend/assets/signs/ are committed (HANDOFF.md §30).
+learn/ASL/
+learn/FSL/
+
 # typescript
 *.tsbuildinfo
 
@@ -71,3 +76,7 @@ example
 # generated native folders
 /ios
 /android
+
+
+graphify-out/
+ai/models/**/*.task

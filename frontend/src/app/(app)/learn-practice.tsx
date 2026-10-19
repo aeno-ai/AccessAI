@@ -8,7 +8,6 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { MaxContentWidth } from '@/constants/theme';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
-import { useIsOnline } from '@/hooks/use-is-online';
 import { usePreferences } from '@/hooks/use-preferences';
 import { signReady, useSignModels } from '@/hooks/use-sign-recognition';
 import { useLearn } from '@/learn/LearnProvider';
@@ -18,14 +17,13 @@ import { useDescribeSigns } from '@/learn/useFeedback';
 
 /**
  * Free camera practice: pick any sign of your course and make it in front
- * of the camera as often as you like. No hearts, no XP. Needs the internet.
+ * of the camera as often as you like. Needs the internet.
  */
 export default function PracticeScreen() {
   const { prefs } = usePreferences();
   const { colors } = useAppTheme();
   const styles = useThemedStyles(makeStyles);
   const { completions } = useLearn();
-  const online = useIsOnline();
   const models = useSignModels();
   const { aloud } = useDescribeSigns();
   const course = prefs.signLanguage;
@@ -47,7 +45,7 @@ export default function PracticeScreen() {
     return { learned: all.filter((s) => learnedSet.has(s)), rest: all.filter((s) => !learnedSet.has(s)) };
   }, [completions, course]);
 
-  const ready = online && signReady(models, course, 'words');
+  const ready = signReady(models, course, 'words');
 
   if (sign) {
     return (
@@ -99,10 +97,8 @@ export default function PracticeScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.note}>
           {ready
-            ? 'Pick a sign and make it in front of the camera. Practice is free: no hearts, as often as you like.'
-            : models === null && online
-              ? 'Getting ready…'
-              : 'Camera practice needs the internet.'}
+            ? 'Pick a sign and make it in front of the camera, as often as you like.'
+            : "Camera practice isn't available on this phone yet."}
         </Text>
         {list('Signs you learned', learned)}
         {list(learned.length ? 'More signs' : 'All signs', rest)}

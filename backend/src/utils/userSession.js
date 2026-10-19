@@ -3,8 +3,6 @@ const jwt = require('jsonwebtoken');
 // Shared by the password and Google controllers, so every way of logging
 // in hands out exactly the same kind of token and the same answers.
 
-const DEACTIVATED = { message: 'This account has been deactivated. Please contact support.' };
-
 // firstName is for the app's "Hello, <name>" — the app reads it straight
 // from the token, like role, so it shows offline too. Accounts from before
 // first names were collected use the first word of their full name.
@@ -33,4 +31,4 @@ const shouldRenew = (decoded) => typeof decoded?.iat === 'number' && Date.now() 
 // the job was due.
 const isDeletionDue = (user) => Boolean(user.deletionScheduledFor) && user.deletionScheduledFor <= new Date();
 
-module.exports = { DEACTIVATED, signUserToken, shouldRenew, isDeletionDue };
+module.exports = { signUserToken, shouldRenew, isDeletionDue };

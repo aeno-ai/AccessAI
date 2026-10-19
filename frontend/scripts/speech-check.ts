@@ -41,7 +41,7 @@ async function main() {
 
   reset();
   const long = speakMixed('First part, second part');
-  const cutting = speakMixed('Accel here');
+  const cutting = speakMixed('Laya here');
   check('a message cut off mid-way never says the rest', (await long) === false && !engine.said.some((text) => text.includes('second')), engine.said);
   engine.finish();
   await cutting;
@@ -61,8 +61,8 @@ async function main() {
   const ordinary = speakMixed('New message from Ana', { onEnd: () => (skippedEnded = true) });
   check('ordinary speech during SOS speech is skipped', (await ordinary) === false && !engine.said.includes('New message from Ana') && skippedEnded);
   stopMixed();
-  stopMixed({ owner: 'accel' });
-  check('a plain stop (Accel, the mic, a screen) leaves SOS speech playing', JSON.stringify(playing()) === '["Paul needs help"]', playing());
+  stopMixed({ owner: 'laya' });
+  check('a plain stop (Laya, the mic, a screen) leaves SOS speech playing', JSON.stringify(playing()) === '["Paul needs help"]', playing());
   const newer = speakMixed('Paul is 2 kilometers away', { sos: true });
   check('newer SOS speech replaces older SOS speech', (await sos) === false && JSON.stringify(playing()) === '["Paul is 2 kilometers away"]', playing());
   stopMixed({ sos: true });
@@ -71,13 +71,13 @@ async function main() {
   console.log('\nstopping only your own speech');
   reset();
   const bubble = speakMixed('Hello from the bubble', { owner: 'bubble:1' });
-  stopMixed({ owner: 'accel' });
+  stopMixed({ owner: 'laya' });
   stopMixed({ owner: 'bubble:2' });
-  check("Accel closing, or another bubble, leaves this bubble's reading alone", engine.playing.length === 1, playing());
+  check("Laya closing, or another bubble, leaves this bubble's reading alone", engine.playing.length === 1, playing());
   stopMixed({ owner: 'bubble:1' });
   check('a bubble stops its own reading', (await bubble) === false && engine.playing.length === 0);
   stopMixed();
-  stopMixed({ owner: 'accel' });
+  stopMixed({ owner: 'laya' });
   check('stopping when nothing is playing does nothing', engine.playing.length === 0);
 
   console.log("\na phone that doesn't report stops");

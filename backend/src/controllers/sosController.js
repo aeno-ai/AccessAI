@@ -5,6 +5,7 @@ const DirectMessage = require('../models/DirectMessage');
 const User = require('../models/Users');
 const { emitToUser, isOnline, isForeground } = require('../realtime/io');
 const { pushToUsers } = require('../utils/push');
+const { usableFilter } = require('../utils/accountState');
 const { toClient } = require('./directMessageController');
 
 // How long things last.
@@ -28,11 +29,8 @@ async function sosCircleOf(userId) {
     .select('requester recipient')
     .lean();
   const friendIds = friendships.map((f) => (String(f.requester) === String(userId) ? f.recipient : f.requester));
-  const usable = await User.find({
-    _id: { $in: friendIds },
-    isActive: { $ne: false },
-    deletionScheduledFor: null,
-  })
+  // Not deactivated, suspended or waiting to be deleted (utils/accountState.js).
+  const usable = await User.find({ _id: { $in: friendIds }, ...usableFilter() })
     .select('_id')
     .lean();
   const usableIds = new Set(usable.map((u) => String(u._id)));

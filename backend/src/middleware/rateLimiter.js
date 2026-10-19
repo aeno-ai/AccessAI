@@ -1,15 +1,28 @@
 const jwt = require('jsonwebtoken');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { createTokenBucketLimiter } = require('./tokenBucket');
+const { recordLimitHit } = require('../utils/activityLog');
 
 // Every limiter answers with JSON { message } (an object, not a string —
 // express-rate-limit sends a plain string as an HTML page, which the app
 // would show raw).
+//
+// The app's limiters also note each refusal (at most once a minute per
+// person and limit) in the activity log, for the admin panel's "Needs a
+// look" list (HANDOFF.md §41). `name` is what the admin sees.
+const limited = (name, options) =>
+  rateLimit({
+    ...options,
+    handler: (req, res, _next, used) => {
+      recordLimitHit(req, name);
+      res.status(used.statusCode).json(used.message);
+    },
+  });
 
 // Login, sign-up and restoring an account. Only FAILED tries count, so a
 // person who logs in and out a few times (or a family sharing one Wi-Fi)
 // is never locked out; 20 wrong passwords in 15 minutes still is.
-const authLimiter = rateLimit({
+const authLimiter = limited('logins', {
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20,
   skipSuccessfulRequests: true,
@@ -55,6 +68,7 @@ const generalLimiter = createTokenBucketLimiter({
   blockWindowMs: 60 * 1000,
   blockMs: 5 * 60 * 1000,
   keyGenerator: accountOrIp,
+  onRefuse: (req) => recordLimitHit(req, 'general'),
   skip: (req) => OWN_LIMIT_PATHS.some((path) => req.path.startsWith(path)),
 });
 
@@ -73,7 +87,7 @@ const adminLoginLimiter = rateLimit({
 // Gmail account sends a few hundred a day) and people's inboxes. The outer
 // guard: each address also waits a minute between codes and gets at most 5
 // a day (utils/codeGate.js).
-const emailCodeLimiter = rateLimit({
+const emailCodeLimiter = limited('email codes', {
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   message: { message: 'Too many code requests. Please try again after 15 minutes.' },
@@ -82,14 +96,14 @@ const emailCodeLimiter = rateLimit({
 // Endpoints that check a code. Each code already dies after 5 wrong
 // guesses; this stops someone cycling through fresh codes from one IP.
 // Roomier than authLimiter so a couple of typos don't lock anyone out.
-const codeCheckLimiter = rateLimit({
+const codeCheckLimiter = limited('code checks', {
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20,
   message: { message: 'Too many attempts. Please try again after 15 minutes.' },
 });
 
 // "Did my code email go out?" — the code page asks a few times per code.
-const codeStatusLimiter = rateLimit({
+const codeStatusLimiter = limited('code status', {
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 60,
   message: { message: 'Too many tries. Please wait a moment and try again.' },
@@ -97,7 +111,7 @@ const codeStatusLimiter = rateLimit({
 
 // Adding a friend by code. Codes are random, but this keeps anyone from
 // trying lots of them to find accounts.
-const friendRequestLimiter = rateLimit({
+const friendRequestLimiter = limited('friend requests', {
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 50,
   message: { message: 'Too many friend requests. Please try again in an hour.' },
@@ -106,7 +120,7 @@ const friendRequestLimiter = rateLimit({
 // Online chat between friends: sending, reading and catching up after
 // being offline. Mounted before protect(), so it reads the login itself
 // (accountOrIp): friends sharing one Wi-Fi each get their own 600.
-const messageLimiter = rateLimit({
+const messageLimiter = limited('messages', {
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 600,
   keyGenerator: accountOrIp,
@@ -116,8 +130,8 @@ const messageLimiter = rateLimit({
 // Per-account limits — mount these AFTER protect(), which sets req.user.
 // Counting per account (not per IP) means friends sharing one Wi-Fi never
 // use up each other's allowance.
-const perUser = (windowMs, max, message) =>
-  rateLimit({
+const perUser = (name, windowMs, max, message) =>
+  limited(name, {
     windowMs,
     max,
     keyGenerator: (req) => `user:${req.user.userId}`,
@@ -126,16 +140,16 @@ const perUser = (windowMs, max, message) =>
 
 // SOS: trigger, live location (every ~30 s for 30 min), responses, the
 // active list. Generous — an emergency must not be throttled.
-const sosLimiter = perUser(15 * 60 * 1000, 300, 'Too many SOS requests. Please wait a moment and try again.');
+const sosLimiter = perUser('sos', 15 * 60 * 1000, 300, 'Too many SOS requests. Please wait a moment and try again.');
 
-// Accel, the voice assistant: one call per spoken command.
-const assistantLimiter = perUser(60 * 1000, 30, 'Accel needs a short break. Please try again in a minute.');
+// Laya, the voice assistant: one call per spoken command.
+const assistantLimiter = perUser('laya', 60 * 1000, 30, 'Laya needs a short break. Please try again in a minute.');
 
 // Sign language: one short video every ~2 seconds while signing.
-const signLimiter = perUser(60 * 1000, 60, 'Sign language is busy. Please wait a moment and try again.');
+const signLimiter = perUser('sign language', 60 * 1000, 60, 'Sign language is busy. Please wait a moment and try again.');
 
 // Saving or removing this phone's notification address.
-const pushLimiter = perUser(15 * 60 * 1000, 30, 'Too many requests. Please wait a few minutes and try again.');
+const pushLimiter = perUser('push', 15 * 60 * 1000, 30, 'Too many requests. Please wait a few minutes and try again.');
 
 module.exports = {
   authLimiter,

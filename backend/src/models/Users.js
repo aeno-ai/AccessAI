@@ -62,6 +62,18 @@ const userSchema = new mongoose.Schema({
   // it. Once this date passes, utils/accountDeletion.js erases the account
   // and everything that belongs to it. Indexed for that cleanup query.
   deletionScheduledFor: { type: Date, index: true },
+  // 'admin': an admin's "delete in 30 days" (HANDOFF.md §42) — the account
+  // is locked at once and only an admin can undo it; logging in can't.
+  // Missing: the person asked for it themselves.
+  deletionBy: { type: String, enum: ['user', 'admin'] },
+  deletionReason: { type: String, trim: true, maxlength: 300 },
+  deletionScheduledByAdmin: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+  // Paused by an admin until this time, with the reason the person is shown
+  // (HANDOFF.md §42). The account is usable again by itself once it passes.
+  suspendedUntil: { type: Date },
+  suspendedReason: { type: String, trim: true, maxlength: 300 },
+  suspendedAt: { type: Date },
+  suspendedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   // Shared to add someone as a friend ("ABCD-2345"); there's no lookup by
   // email. Made the first time it's needed (utils/friendCode.js). Sparse
   // so accounts that never asked for one don't clash.

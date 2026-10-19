@@ -1,211 +1,117 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import type { CameraView } from 'expo-camera';
-import { File, UploadTask, UploadType } from 'expo-file-system';
-import { apiFetch, apiUrl, isApiError } from '@/api/apiClient';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { signLandmarksAvailable } from 'react-native-sign-landmarks';
 import type { SignLanguage, SignUnit } from '@/hooks/use-preferences';
-import { getToken } from '@/utils/tokenStorage';
+import { hasSignModel, loadSignModel } from '@/sign/models';
+import { SignReader, type SignEvent } from '@/sign/reader';
 
 /**
- * Sign language → words, hands-free.
- *
- * While sign mode is on, the camera records short video pieces (~2 s) one
- * after another. Each piece is sent to the AccessAI server — the next one
- * records while the last uploads — and the server's AI service (ai/app/sign)
- * finds the hand and body points with MediaPipe, notices when a sign starts
- * and ends (hands rise above the waist, then drop), and asks the sign model
- * which word it was. Videos are never kept.
- *
- * The models and their labels live on the server (ai/models/sign/…), so a
- * better model can be swapped in there without updating the app.
+ * Sign language → words, hands-free, all on the phone (HANDOFF.md §49):
+ * MediaPipe Holistic reads every camera frame, src/sign/ notices where a
+ * sign starts and ends and reads it with the model that comes with the app
+ * (src/sign/reader.ts). Nothing is sent anywhere, so it works offline. Only
+ * the "make a sentence" step afterwards needs the internet.
  */
-export type SignEvent =
-  | { type: 'word'; label: string; confidence: number; top5: { label: string; confidence: number }[] }
-  | { type: 'unsure'; top5: { label: string; confidence: number }[] }
-  | { type: 'reject'; top5: { label: string; confidence: number }[] }
-  | { type: 'hint'; message: string };
+export type { SignDebug, SignEvent } from '@/sign/reader';
 
 /** WAIT: watching for a sign · SIGN: someone is signing · TAIL: reading the sign */
 export type SignPhase = 'off' | 'starting' | 'WAIT' | 'SIGN' | 'TAIL' | 'paused';
 
-export type SignModelInfo = { language: SignLanguage; unit: SignUnit; available: boolean; signs: number };
+export type SignModelInfo = { language: SignLanguage; unit: SignUnit; available: boolean };
 
-type ChunkResult = { events: SignEvent[]; phase: 'WAIT' | 'SIGN' | 'TAIL'; frames: number; handsSeen: boolean };
+const MODELS: SignModelInfo[] = (['fsl', 'asl'] as const).flatMap((language) =>
+  (['words', 'letters'] as const).map((unit) => ({
+    language,
+    unit,
+    available: signLandmarksAvailable && hasSignModel(language, unit),
+  })),
+);
 
-const PIECE_SECONDS = 2;
-const IDLE_PAUSE_MS = 30 * 1000;
-
-/** Which sign models the server has (e.g. FSL words yes, letters not yet). */
-export async function fetchSignModels(): Promise<SignModelInfo[]> {
-  const { models } = await apiFetch<{ models: SignModelInfo[] }>('/sign/models', { timeoutMs: 6000 });
-  return models;
-}
-
-/** The sign models, fetched once per screen (null while loading; [] if unreachable). */
-export function useSignModels(): SignModelInfo[] | null {
-  const [models, setModels] = useState<SignModelInfo[] | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetchSignModels()
-      .then((list) => !cancelled && setModels(list))
-      .catch(() => !cancelled && setModels([]));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return models;
+/** Which sign options this phone can use (the models come with the app). */
+export function useSignModels(): SignModelInfo[] {
+  return MODELS;
 }
 
 /** Whether `language` + `unit` can be used now. */
 export const signReady = (models: SignModelInfo[] | null, language: SignLanguage, unit: SignUnit) =>
   models?.some((model) => model.language === language && model.unit === unit && model.available) ?? false;
 
-async function uploadPiece(sessionId: string, uri: string, startedAt: number, index: number, final: boolean): Promise<ChunkResult> {
-  const token = await getToken();
-  const task = new UploadTask(new File(uri), apiUrl(`/sign/session/${sessionId}/chunk`), {
-    httpMethod: 'POST',
-    uploadType: UploadType.BINARY_CONTENT,
-    mimeType: 'video/mp4',
-    headers: {
-      'Content-Type': 'video/mp4',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      'X-Chunk-Start': String(startedAt),
-      'X-Chunk-Index': String(index),
-      'X-Chunk-Final': final ? '1' : '0',
-    },
-  });
-  const response = await task.uploadAsync();
-  let body: (ChunkResult & { message?: string; code?: string }) | null = null;
-  try {
-    body = JSON.parse(response.body);
-  } catch {
-    body = null;
-  }
-  if (response.status < 200 || response.status >= 300 || !body) {
-    throw Object.assign(new Error(body?.message ?? "Sign language isn't working right now."), {
-      status: response.status,
-      code: body?.code,
-    });
-  }
-  return body;
-}
+/** Whether this phone can read signs at all (the native part is in this app build). */
+export const signReadingAvailable = signLandmarksAvailable;
 
 type Options = {
-  cameraRef: RefObject<CameraView | null>;
-  /** Camera on screen and ready. */
-  cameraReady: boolean;
-  /** Sign mode is on. */
+  /** Sign mode is on (and the camera allowed). */
   active: boolean;
   language: SignLanguage;
   unit: SignUnit;
   minConfidence: number;
   flip: boolean;
   onEvent: (event: SignEvent) => void;
+  /** Keep the latest points for the testing landmark view. */
+  debug?: boolean;
 };
 
-export function useSignRecognition({ cameraRef, cameraReady, active, language, unit, minConfidence, flip, onEvent }: Options) {
-  const [phase, setPhase] = useState<SignPhase>('off');
-  const [message, setMessage] = useState('');
-  const [resumeKey, setResumeKey] = useState(0);
+export function useSignRecognition({ active, language, unit, minConfidence, flip, onEvent, debug = false }: Options) {
+  // One reader (and camera output) for the life of the screen.
+  const [reader] = useState(() => new SignReader());
+  const [phase, setPhase] = useState<SignPhase>('WAIT');
+  const [paused, setPaused] = useState(false);
+  const [loadedKey, setLoadedKey] = useState('');
+  const [loadFailed, setLoadFailed] = useState('');
+  const key = `${language}/${unit}`;
   const onEventRef = useRef(onEvent);
   useEffect(() => {
     onEventRef.current = onEvent;
   });
 
+  useEffect(() => reader.configure({ active, minConfidence, flip, debug }), [reader, active, minConfidence, flip, debug]);
+
+  useEffect(
+    () =>
+      reader.listen({
+        event: (event) => onEventRef.current(event),
+        phase: setPhase,
+        paused: setPaused,
+      }),
+    [reader],
+  );
+
+  // The model for this language and unit (loaded once, a few MB).
   useEffect(() => {
-    if (!active || !cameraReady) {
-      return;
-    }
-    const camera = cameraRef.current;
-    let stopped = false;
-    let sessionId: string | null = null;
-    let queue: Promise<void> = Promise.resolve();
-    let lastSigning = Date.now();
-    let index = 0;
-
-    const send = (uri: string, startedAt: number, final: boolean) => {
-      const pieceIndex = index++;
-      queue = queue.then(async () => {
-        if (!sessionId) return;
-        try {
-          const result = await uploadPiece(sessionId, uri, startedAt, pieceIndex, final);
-          if (stopped && !final) return;
-          if (result.handsSeen || result.phase !== 'WAIT') lastSigning = Date.now();
-          if (!stopped) setPhase(result.phase);
-          result.events.forEach((event) => onEventRef.current(event));
-        } catch (error) {
-          const code = (error as { code?: string }).code;
-          if (code === 'SIGN_SESSION_GONE') {
-            setMessage('Sign language started again.');
-            stopped = true;
-            setResumeKey((key) => key + 1);
-          } else if (!stopped) {
-            setMessage(error instanceof Error ? error.message : "Sign language isn't working right now.");
-          }
-        } finally {
-          try {
-            new File(uri).delete();
-          } catch {
-            // Already gone.
-          }
-        }
+    if (!active || !signLandmarksAvailable) return;
+    let cancelled = false;
+    loadSignModel(language, unit)
+      .then((model) => {
+        if (cancelled) return;
+        reader.setModel(model);
+        setLoadedKey(`${language}/${unit}`);
+      })
+      .catch((error) => {
+        console.warn('[sign] could not load the model:', error);
+        if (!cancelled) setLoadFailed(`${language}/${unit}`);
       });
-    };
-
-    void (async () => {
-      setPhase('starting');
-      setMessage('');
-      try {
-        const session = await apiFetch<{ sessionId: string }>('/sign/session', {
-          method: 'POST',
-          timeoutMs: 10000,
-          body: JSON.stringify({ language, unit, minConfidence, flip }),
-        });
-        sessionId = session.sessionId;
-      } catch (error) {
-        setPhase('off');
-        setMessage(
-          isApiError(error) && error.status === 409
-            ? `${unit === 'letters' ? 'Letters' : 'Words'} aren't ready yet for ${language.toUpperCase()}. Try the other option.`
-            : "Sign language isn't working right now. You can still type.",
-        );
-        return;
-      }
-      setPhase('WAIT');
-      // The recording loop: one piece after another, hands-free.
-      while (!stopped && cameraRef.current) {
-        if (Date.now() - lastSigning > IDLE_PAUSE_MS) {
-          setPhase('paused');
-          setMessage('Paused because no one signed for a while. Tap Resume to keep going.');
-          break;
-        }
-        const startedAt = Date.now();
-        let video: { uri: string } | undefined;
-        try {
-          video = await cameraRef.current.recordAsync({ maxDuration: PIECE_SECONDS, codec: 'avc1' });
-        } catch {
-          // The camera was busy or closed; try again shortly.
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          continue;
-        }
-        // A piece cut short by stopping is the last one: the server reads any
-        // sign still waiting in it.
-        if (video?.uri) send(video.uri, startedAt, stopped);
-      }
-      // Stopped, paused or the camera closed: finish reading, then close the session.
-      await queue;
-      if (sessionId) void apiFetch(`/sign/session/${sessionId}`, { method: 'DELETE', timeoutMs: 4000 }).catch(() => {});
-    })();
-
     return () => {
-      stopped = true;
-      camera?.stopRecording();
+      cancelled = true;
     };
-  }, [active, cameraReady, language, unit, minConfidence, flip, cameraRef, resumeKey]);
+  }, [reader, active, language, unit]);
 
-  const resume = useCallback(() => {
-    setMessage('');
-    setResumeKey((key) => key + 1);
-  }, []);
+  const resume = useCallback(() => reader.resume(), [reader]);
 
-  return { phase: active && cameraReady ? phase : ('off' as SignPhase), message, resume };
+  let message = '';
+  let shown: SignPhase = phase;
+  if (!signLandmarksAvailable) {
+    message = "Sign language isn't available on this phone yet.";
+    shown = 'off';
+  } else if (loadFailed === key) {
+    message = `${unit === 'letters' ? 'Letters' : 'Words'} aren't ready yet for ${language.toUpperCase()}. Try the other option.`;
+    shown = 'off';
+  } else if (!active) {
+    shown = 'off';
+  } else if (loadedKey !== key) {
+    shown = 'starting';
+  } else if (paused) {
+    message = 'Paused because no one signed for a while. Tap Resume to keep going.';
+    shown = 'paused';
+  }
+
+  return { phase: shown, message, resume, output: reader.output, debug: reader.debug };
 }

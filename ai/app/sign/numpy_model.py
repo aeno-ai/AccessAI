@@ -12,8 +12,9 @@ zip archive:
       model.weights.h5   -> the knobs (weights), one group per layer
 
 This file reads both and does the same multiply-and-add steps TensorFlow would.
-It supports the Conv1D word model from notebook 03 (the default). The GRU
-variant is not supported here.
+It supports the Conv1D word model from notebook 03 (the default), dilated
+Conv1D, layers without a bias, and the one-hand letters model (Dense only).
+The GRU variant is not supported here.
 """
 import io
 import json
@@ -38,6 +39,11 @@ def _act(x, name):
         e = np.exp(x - x.max(axis=-1, keepdims=True))
         return e / e.sum(axis=-1, keepdims=True)
     raise ValueError(f"unsupported activation: {name}")
+
+
+def _first(value):
+    """Keras saves 1-D settings like dilation_rate as [d] (or a plain d)."""
+    return int(value[0] if isinstance(value, (list, tuple)) else value)
 
 
 class NumpyModel:
@@ -82,24 +88,28 @@ class NumpyModel:
         for kind, conf, w in self.layers:
             if kind == "Dense":
                 # Every frame's numbers times the knob grid, plus the bias.
-                x = _act(x @ w[0] + w[1], conf.get("activation"))
+                x = _act(x @ w[0] + (w[1] if len(w) > 1 else 0), conf.get("activation"))
             elif kind == "BatchNormalization":
                 gamma, beta, mean, var = w
                 eps = conf.get("epsilon", 1e-3)
                 x = gamma * (x - mean) / np.sqrt(var + eps) + beta
             elif kind == "Conv1D":
-                # Slide a 5-frame window along time: each output frame is the
-                # sum of 5 neighbouring input frames, each times its own knobs.
-                kernel, bias = w
+                # Slide a k-frame window along time: each output frame is the
+                # sum of k input frames, each times its own knobs. With
+                # dilation d those frames are d apart (sees further back/ahead).
+                kernel = w[0]
+                bias = w[1] if len(w) > 1 else 0
                 k = kernel.shape[0]
                 if conf.get("padding", "valid") != "same":
                     raise ValueError("only padding='same' is supported")
-                left = (k - 1) // 2
-                xp = np.pad(x, ((0, 0), (left, k - 1 - left), (0, 0)))
+                d = _first(conf.get("dilation_rate", 1))
+                span = (k - 1) * d
+                left = span // 2
+                xp = np.pad(x, ((0, 0), (left, span - left), (0, 0)))
                 T = x.shape[1]
                 out = np.zeros((x.shape[0], T, kernel.shape[2]), np.float32)
                 for j in range(k):
-                    out += xp[:, j:j + T] @ kernel[j]
+                    out += xp[:, j * d:j * d + T] @ kernel[j]
                 x = _act(out + bias, conf.get("activation"))
             elif kind == "Activation":
                 x = _act(x, conf.get("activation"))

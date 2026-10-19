@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { router } from 'expo-router';
 import { useAfterFirstScreen } from '@/hooks/use-after-first-screen';
 import { useBootstrap } from '@/hooks/use-bootstrap';
-import { Notifications, registerForPush } from '@/notifications/push';
+import { lastKnownDeviceToken, Notifications, registerForPush } from '@/notifications/push';
 
 type PushData = { type?: string; friendId?: string; eventId?: string; userId?: string };
 
@@ -37,7 +37,13 @@ export function usePushNotifications() {
   useEffect(() => {
     if (!Notifications || !settled || !userId) return;
     void registerForPush(userId);
-    const tokenChanged = Notifications.addPushTokenListener(() => void registerForPush(userId));
+    // Only a really new token re-registers: asking the phone for its token
+    // also fires this event with the same token, which used to start another
+    // registration every time — a loop for as long as someone was signed in.
+    const tokenChanged = Notifications.addPushTokenListener((device) => {
+      if (String(device.data) === lastKnownDeviceToken()) return;
+      void registerForPush(userId, device);
+    });
     return () => tokenChanged.remove();
   }, [settled, userId]);
 

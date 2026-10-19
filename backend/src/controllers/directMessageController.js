@@ -3,7 +3,7 @@ const Friendship = require('../models/Friendship');
 const User = require('../models/Users');
 const { emitToUser, isForeground } = require('../realtime/io');
 const { pushToUsers } = require('../utils/push');
-const { USABLE_ACCOUNT, isRequester } = require('./friendController');
+const { usableAccount, isRequester } = require('./friendController');
 
 // The accepted friendship between the caller and :friendId, or null. Only
 // friends can message each other, and only while the friend's account is
@@ -11,7 +11,7 @@ const { USABLE_ACCOUNT, isRequester } = require('./friendController');
 async function friendshipWith(me, friendId) {
   const friendship = await Friendship.findOne({ pairKey: Friendship.pairKeyOf(me, friendId), status: 'accepted' });
   if (!friendship) return null;
-  const usable = await User.exists({ _id: friendId, ...USABLE_ACCOUNT });
+  const usable = await User.exists({ _id: friendId, ...usableAccount() });
   return usable ? friendship : null;
 }
 

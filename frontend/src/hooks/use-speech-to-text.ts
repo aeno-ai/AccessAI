@@ -46,7 +46,7 @@ export type SpeechMessage = {
   /** Android only: a language can be downloaded for offline use. */
   canDownload?: boolean;
   /**
-   * Offline, and the phone has no offline English yet. Accel says how to get
+   * Offline, and the phone has no offline English yet. Laya says how to get
    * it (the Google app's "Offline speech recognition").
    */
   needsOfflineEnglish?: boolean;
@@ -313,10 +313,10 @@ type UseSpeechToTextOptions = {
   offlineLanguage?: OfflineSpeechLanguage;
   /**
    * 'dictation' (default): messages, long and punctuated.
-   * 'command': short spoken commands for Accel — tuned for a few words.
+   * 'command': short spoken commands for Laya — tuned for a few words.
    */
   mode?: 'dictation' | 'command';
-  /** Words to listen out for (iOS uses them as hints): names, "Accel"… */
+  /** Words to listen out for (iOS uses them as hints): names, "Laya"… */
   contextualStrings?: string[];
 };
 
@@ -431,7 +431,7 @@ export function useSpeechToText({
         // "aborted" is this hook cancelling on purpose — nothing to report.
         pendingErrorRef.current = event.error === 'aborted' ? null : { error: event.error, code: event.code };
       },
-      // Someone else (Accel, or another screen's mic) took the mic.
+      // Someone else (Laya, or another screen's mic) took the mic.
       preempted: () => {
         attemptsRef.current = [];
         pendingErrorRef.current = null;
@@ -488,7 +488,7 @@ export function useSpeechToText({
         return;
       }
 
-      // Take the mic (stopping "Hey Accel" or another screen's session first).
+      // Take the mic (stopping "Hey Laya" or another screen's session first).
       await acquire(owner);
       attemptsRef.current = plan.attempts;
       downloadableRef.current = plan.downloadable ?? false;

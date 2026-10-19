@@ -28,7 +28,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="sign" options={{ title: 'Sign language' }} />
       <Stack.Screen name="alerts" options={{ title: 'Alerts' }} />
       <Stack.Screen name="sos" options={{ title: 'Emergency SOS' }} />
-      <Stack.Screen name="accel" options={{ title: 'Accel, voice assistant' }} />
+      <Stack.Screen name="laya" options={{ title: 'Laya, voice assistant' }} />
     </Stack>
   );
 }

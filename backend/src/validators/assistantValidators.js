@@ -17,9 +17,9 @@ const spokenText = (field, max) =>
     .customSanitizer(stripControl)
     .trim()
     .isLength({ min: 1, max })
-    .withMessage(`That's too long for Accel. Please say it in fewer words.`);
+    .withMessage(`That's too long for Laya. Please say it in fewer words.`);
 
-// What Accel heard, and which screen the person was on.
+// What Laya heard, and which screen the person was on.
 const interpretValidators = [
   spokenText('text', 300),
   body('screen').optional().isString().withMessage(GENERIC).bail().isLength({ max: 100 }).withMessage(GENERIC),

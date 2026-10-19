@@ -13,12 +13,40 @@ const registerToken = async (req, res, next) => {
     const me = req.user.userId;
     const { token, deviceId, platform } = req.body;
     await User.updateMany({ _id: { $ne: me }, 'pushTokens.token': token }, { $pull: { pushTokens: { token } } });
-    // Replace this phone's previous entry (same deviceId or same token).
-    await User.updateOne({ _id: me }, { $pull: { pushTokens: { deviceId } } });
-    await User.updateOne({ _id: me }, { $pull: { pushTokens: { token } } });
+    // Replace this phone's previous entry (same deviceId or same token) and
+    // add the new one in a single step, so two saves arriving together can
+    // never both add it (that used to leave duplicates — and duplicate
+    // notifications). $literal: these are plain values, never field names.
     await User.updateOne(
       { _id: me },
-      { $push: { pushTokens: { $each: [{ token, deviceId, platform, updatedAt: new Date() }], $slice: -MAX_PHONES } } },
+      [
+        {
+          $set: {
+            pushTokens: {
+              $slice: [
+                {
+                  $concatArrays: [
+                    {
+                      $filter: {
+                        input: { $ifNull: ['$pushTokens', []] },
+                        cond: {
+                          $and: [
+                            { $ne: ['$$this.deviceId', { $literal: deviceId }] },
+                            { $ne: ['$$this.token', { $literal: token }] },
+                          ],
+                        },
+                      },
+                    },
+                    [{ token: { $literal: token }, deviceId: { $literal: deviceId }, platform: { $literal: platform }, updatedAt: '$$NOW' }],
+                  ],
+                },
+                -MAX_PHONES,
+              ],
+            },
+          },
+        },
+      ],
+      { updatePipeline: true },
     );
     res.json({ saved: true });
   } catch (error) {
@@ -26,14 +54,19 @@ const registerToken = async (req, res, next) => {
   }
 };
 
-// Signing out: this phone stops getting this account's notifications.
+// This phone stops getting this account's notifications. Also used by
+// POST /auth/logout.
+const removePushDevice = (userId, deviceId) =>
+  User.updateOne({ _id: userId }, { $pull: { pushTokens: { deviceId } } });
+
+// Signing out (older app versions; newer ones use POST /auth/logout).
 const removeToken = async (req, res, next) => {
   try {
-    await User.updateOne({ _id: req.user.userId }, { $pull: { pushTokens: { deviceId: req.body.deviceId } } });
+    await removePushDevice(req.user.userId, req.body.deviceId);
     res.json({ removed: true });
   } catch (error) {
     next(error);
   }
 };
 
-module.exports = { registerToken, removeToken };
+module.exports = { registerToken, removeToken, removePushDevice };

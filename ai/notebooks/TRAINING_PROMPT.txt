@@ -1,0 +1,174 @@
+TASK
+Write Kaggle notebooks (Keras 3, TensorFlow backend) that train the sign-language models for my mobile app, for FSL (Filipino Sign Language) and ASL:
+- Part A, word models: retrain the existing ones to be much more accurate on new people.
+- Part B, letter (fingerspelling) models: new.
+I can't record my own training data, so everything comes from public datasets, augmentation and good training. Run each notebook once per language.
+
+==================================================
+SHARED RULES (BOTH PARTS)
+==================================================
+
+LANDMARKS
+- MediaPipe gives 0-1 image coordinates (x, y) of an UNMIRRORED picture.
+- For videos, use legacy mp.solutions.holistic.Holistic(static_image_mode=False, model_complexity=1, smooth_landmarks=True, refine_face_landmarks=False, min_detection_confidence=0.5, min_tracking_confidence=0.5). That's what the phone runs.
+- Save each video's or image's width and height with its landmarks.
+
+CORRECT FOR THE PICTURE'S SHAPE (IMPORTANT)
+- Multiply every x by (width / height) before anything else, so x and y are in the same real-world units.
+- My phone films portrait (9:16) while the datasets are mostly landscape or square. Without this, signs on the phone look squashed to the model. The phone will do the same correction.
+
+THE MODEL MUST RUN IN MY PHONE'S OWN SMALL RUNNER (NO TENSORFLOW ON THE PHONE)
+- Keras Sequential only, using only these layers:
+  - Dense (relu, softmax or linear; on 3-D input it's applied per frame)
+  - BatchNormalization
+  - Conv1D with padding="same", stride 1, dilation_rate allowed
+  - Activation("relu")
+  - GlobalAveragePooling1D
+  - Dropout (training only)
+- Not allowed: LSTM/GRU, attention or transformer, residual/Add layers, LayerNorm, Functional-API branches.
+- Budget: at most about 40 million multiply-adds per prediction and about 10 MB of weights.
+
+IT MUST WORK ON PEOPLE IT HAS NEVER SEEN
+- Split by signer (or by source/session when there are no signer IDs). Validate and test on unseen signers only, never a random split. Frames or images from the same video must never be split across train and test.
+- Train with label smoothing about 0.1, AdamW, warmup + cosine learning rate, class weights, and early stopping on unseen-signer accuracy.
+- Collapse check: report the share of predictions that go to the single most-predicted class. It should stay near 1/N.
+- Suggest a min_confidence: the top probability below which the app should say "not sure", chosen from validation data.
+- If I upload a few videos of my team signing (the word or letter is in the file name), use them ONLY as a final test, never for training.
+
+FINAL CHECK (BOTH PARTS)
+Run the trained model a second time with plain NumPy and confirm the top 5 matches Keras on a few inputs. That's the math the phone uses:
+- Dense = x.W + b per frame
+- BatchNorm = gamma * (x - mean) / sqrt(var + eps) + beta
+- Conv1D "same" with dilation d and kernel k: output frame t = bias + sum over j = 0..k-1 of kernel[j] * input[t + (j - (k-1)/2) * d], with zeros outside the clip
+- GAP = the mean over frames
+
+==================================================
+PART A: WORD MODELS (FSL-105 AND A WLASL-BASED SET)
+==================================================
+
+VOCABULARY: KEEP THESE EXACT LABEL STRINGS
+The app looks words up by them; keep the spelling exactly as written, typos included.
+
+FSL (105):
+APRIL, AUGUST, AUNTIE, BEER, BLACK, BLIND, BLUE, BOY, BREAD, BROWN, CHICKEN, COFFEE, COLD, CORRECT, COUSIN, CRAB, DARK, DAUGHTER, DEAF, DEAF BLIND, DECEMBER, DON’T KNOW, DON’T UNDERSTAND, EGG, EIGHT, FAST, FATHER, FEBRUARY, FISH, FIVE, FOUR, FRIDAY, GIRL, GOOD AFTERNOON, GOOD EVENING, GOOD MORNING, GRANDFATHER, GRANDMOTHER, GRAY, GREEN, HARD OF HEARING, HELLO, HOT, HOW ARE YOU, IM FINE, JANUARY, JUICE, JULY, JUNE, KNOW, LIGHT, LONGANISA, MAN, MARCH, MARRIED, MAY, MEAT, MILK, MONDAY, MOTHER, NICE TO MEET YOU, NINE, NO, NO SUGAR, NOVEMBER, OCTOBER, ONE, ORANGE, PARENTS, PINK, RED, RICE, SATURDAY, SEE YOU TOMORROW, SEPTEMBER, SEVEN, SHRIMP, SIX, SLOW, SON, SPAGHETTI, SUGAR, SUNDAY, TEA, TEN, THANK YOU, THREE, THURSDAY, TODAY, TOMORROW, TUESDAY, TWO, UNCLE, UNDERSTAND, VIOLET, WEDNESDAY, WEELCHAIR PERSON, WHITE, WINE, WOMAN, WRONG, YELLOW, YES, YESTERDAY, YOURE WELCOME
+(The apostrophe in DON’T is the curly ’, U+2019.)
+
+ASL (125, lowercase):
+book, drink, computer, before, chair, go, who, candy, cousin, deaf, fine, help, no, thin, walk, year, yes, all, black, cool, finish, hot, like, many, mother, now, orange, thanksgiving, what, woman, bed, blue, bowling, can, dog, family, fish, graduate, hat, hearing, kiss, language, later, man, shirt, study, tall, white, wrong, accident, apple, bird, change, color, corn, cow, dance, dark, doctor, eat, enjoy, forget, give, last, meet, pink, pizza, play, school, secretary, short, time, want, work, africa, basketball, birthday, brown, but, cheat, city, cook, decide, full, how, jacket, letter, medicine, need, paint, paper, pull, purple, right, same, son, tell, thursday, please, sorry, thank you, name, understand, again, slow, write, where, when, why, wait, hospital, sick, police, careful, call, bathroom, water, hungry, thirsty, money, home, today, tomorrow, yesterday, morning
+
+PRIORITY WORDS (the app's lessons check these with the camera)
+FSL: HELLO, GOOD AFTERNOON, HOW ARE YOU, NICE TO MEET YOU, IM FINE, THANK YOU, YOURE WELCOME, SEE YOU TOMORROW, YES, NO, KNOW, DON’T KNOW
+ASL: help, please, thank you, sorry, yes, no, understand, again, name, meet, how, fine
+For these:
+- oversample them about 2-3x and give them a higher class weight
+- report their accuracy separately
+- choose the final checkpoint on priority-word accuracy on unseen signers, as long as overall accuracy stays near its best
+
+CONTEXT
+The current models score high on their dataset's own test split (FSL 98%), but on my team they get about half right. FSL often collapses to one word ("SON").
+
+INPUT PER FRAME: 69 POINTS x (x, y, present), IN THIS ORDER
+- left hand 21 points (slots 0-20)
+- right hand 21 points (21-41)
+- pose points [0, 11, 12, 13, 14, 15, 16] (42-48; slot 43 = left shoulder, 44 = right shoulder)
+- face points [61, 291, 0, 17, 13, 14, 78, 308, 82, 312, 87, 317, 70, 105, 107, 336, 334, 300, 33, 263] (49-68)
+- A part that isn't found is all zeros (present = 0). Apply the shape correction first.
+
+HOW THE PHONE CUTS A SIGN (TRAIN ON WINDOWS LIKE THIS)
+- The "signing line" sits at shoulder-midpoint y + 1.1 x shoulder width. Image y grows downward, so the line is around the waist.
+- A hand is "up" when its wrist y is above the line.
+- The sign STARTS after 3 frames in a row with a hand up. It ENDS after 0.4 s with no hand up. Signs under 0.3 s are ignored; signs over 4 s are cut off.
+- The window is then padded:
+  - FSL: both sides, so the window is about 4 s (pad = max(0.3, (4 - length) / 2) s), because FSL-105 clips are 4 s with resting hands.
+  - ASL: 0.15 s each side, because WLASL clips are trimmed to the sign.
+- Apply this rule to each dataset clip, with random +-15% jitter of the window's start and end. Keep the plain whole-clip version only if it does better on unseen signers.
+- Take 32 frames as round(linspace(start, end - 1, 32)). Drop clips where hands are found in fewer than 25% of frames.
+
+NORMALIZE, PER CLIP
+- centre = the midpoint of the two shoulders in each frame; scale = the distance between the shoulders.
+- In frames where a shoulder is missing, use the clip's median centre and median scale. If there's none at all, use centre (0.5 * width / height, 0.5) and scale 0.25. Keep scale >= 1e-6.
+- x, y = (x, y - centre) / scale, then multiply by present.
+- This gives 32 x 207 numbers.
+
+EXTRA FEATURES, APPENDED IN THIS ORDER
+Try base, base + hand, and base + hand + velocity for BOTH languages, and keep the best on unseen signers.
+- hand (+84): for each hand (left, then right), its 21 normalized points minus the wrist, divided by the palm size (distance from point 9 to point 0, at least 1e-3), times that hand's present.
+- velocity (+138): normalized xy of each frame minus the previous frame, for all 69 points; zero for the first frame and wherever either frame lacks the point.
+
+MODEL (TUNE IT)
+Input(32, F) -> Dense(192, relu) -> BN -> 4 x [Conv1D(192, kernel 5, dilation 1, 2, 4, 8) -> BN -> ReLU -> Dropout(0.2)] -> GAP -> Dense(192, relu) -> Dropout(0.3) -> Dense(N, softmax)
+The dilations let it see the whole sign in order. Compare against no dilation, width 256, and kernel sizes 3/7.
+
+AUGMENT STRONGLY (on raw 0-1 points, before the shape correction)
+- scale 0.85-1.15, shift, rotation +-15 degrees, slight shear, small per-point jitter
+- speed 0.7-1.4x, dropped or duplicated frames
+- a slow phone: drop frames down to 8-15 fps before sampling the 32
+- a hand or the face missing for a few frames
+- mirrored copies for left-handed signers (x -> 1 - x, and swap the left/right hand slots and the left/right pose/face pairs)
+- mixup if it helps
+
+REPORT
+- unseen-signer top-1 / top-5, overall and for the priority words
+- per-word accuracy and a confusion matrix (priority words first)
+- the collapse check
+- min_confidence
+
+OUTPUTS PER LANGUAGE
+- model.keras
+- labels.json as {"0": "WORD", ...} with exact strings
+- features.json as {"hand": true/false, "velocity": true/false, "aspect_corrected": true}
+- meta.json as {"fixed_seconds": 4.0 for FSL or null for ASL, "min_confidence": ...}
+
+==================================================
+PART B: LETTER (FINGERSPELLING) MODELS
+==================================================
+
+LETTERS
+- ASL: A-Z.
+- FSL: A-Z plus Ñ and NG if the dataset has them (check what the FSL alphabet datasets actually contain).
+- Labels are uppercase strings: "A", ..., "Ñ", "NG".
+
+HOW THE PHONE READS A LETTER
+- The user holds a handshape still: its shape changes by at most 0.12 hand sizes and the wrist drifts by at most 0.25 hand sizes, for 0.4 s. The phone then reads it once.
+- The phone takes ONE frame (the middle of the hold) and ONE hand: the right-hand slot if all 21 points are found, else the left.
+- So the model reads one hand, one frame: 21 points x (x, y) = 42 numbers, ordered x0, y0, x1, y1, ..., x20, y20.
+
+NORMALIZE, PER HAND
+- Apply the shape correction (x * width / height).
+- Subtract the wrist (point 0).
+- Divide by the largest distance from the wrist to any point (at least 1e-6).
+
+DATA
+- Find public FSL and ASL alphabet datasets. Prefer many different signers, backgrounds and lighting, and combine several datasets.
+- Avoid relying on one-person datasets (for example the big Kaggle "ASL Alphabet" set is mostly one signer). Include them only as extra training data, never as the test set.
+- Extract with MediaPipe Hands (static_image_mode=True, max_num_hands=1, min_detection_confidence=0.5) for hand-only images, or Holistic for videos and full-body images. Drop images with no hand found.
+- If a dataset is video, take several frames per hold, but keep all frames of one video in the same split.
+
+MOTION LETTERS (ASL J and Z; FSL J, Z, Ñ, NG if they move)
+One frame can't show motion.
+- Train them on the held handshape (the dataset's frames).
+- Report how often they're confused with similar letters (J vs I, Z vs D).
+- If one is hopeless, tell me instead of dropping it silently.
+
+AUGMENT
+- rotation only +-15 degrees: hand orientation tells some letters apart (H/U, G/Q, K/P), so never flip upside down
+- small shear/perspective (aspect 0.8-1.2), per-point jitter
+- slight finger-length variation
+- mirrored copies (x -> -x after normalizing) so left-handed users work
+- mixup if it helps
+
+MODEL
+Input(1, 42) -> Dense(256, relu) -> BN -> Dropout(0.3) -> Dense(256, relu) -> BN -> Dropout(0.3) -> Dense(128, relu) -> Dense(N, softmax)
+Tune widths and depth. Keep it Sequential with the allowed layers.
+
+REPORT
+- unseen-signer accuracy (top-1 / top-5)
+- per-letter accuracy and a confusion matrix
+- the collapse check
+- min_confidence
+
+OUTPUTS PER LANGUAGE
+- model.keras
+- labels.json as {"0": "A", ...}
+- meta.json as {"input": "hand-21", "segmentation": "hold", "aspect_corrected": true, "min_confidence": ...}
+- the exact normalization code you used, as one short Python function normalize_hand(points_21x2, width, height). My app will copy it.

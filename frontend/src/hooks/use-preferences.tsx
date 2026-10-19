@@ -18,6 +18,7 @@ import {
   type AccessibilityProfile,
 } from '@/constants/profiles';
 import { getAccessibilityPreference, LEGACY_PREFERENCES, preferencesKey } from '@/utils/onboardingStorage';
+import { migrateSavedPreferences } from '@/utils/prefsMigration';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type TextScale = 1 | 1.15 | 1.3 | 1.5;
@@ -27,8 +28,8 @@ export type ShakeSensitivity = 'light' | 'normal' | 'firm';
 export type SosCountdown = 3 | 5 | 10;
 /** 'auto' = the phone's normal voice. */
 export type VoiceChoice = 'auto' | 'man' | 'woman';
-/** Accel's own voice: a man's or woman's, or the same as the app's. */
-export type AccelVoice = 'man' | 'woman' | 'app';
+/** Laya's own voice: a man's or woman's, or the same as the app's. */
+export type LayaVoice = 'man' | 'woman' | 'app';
 export type SignLanguage = 'fsl' | 'asl';
 export type SignUnit = 'words' | 'letters';
 export type SignCamera = 'front' | 'back';
@@ -70,15 +71,17 @@ export type Preferences = {
   shakeToSos: boolean;
   shakeSensitivity: ShakeSensitivity;
   sosCountdown: SosCountdown;
-  // Accel, the voice assistant (on by default for Blind / low vision)
-  accelEnabled: boolean;
-  /** Listen for "Hey Accel" while AccessAI is open (development build). */
-  accelWakeWord: boolean;
+  // Laya, the voice assistant (on by default for Blind / low vision)
+  layaEnabled: boolean;
+  /** Listen for "Hey Laya" while AccessAI is open (development build). */
+  layaWakeWord: boolean;
   /** Let the AccessAI server's AI understand commands the phone's rules can't (online). */
-  accelSmart: boolean;
-  accelVoice: AccelVoice;
-  /** The spoken "I'm Accel…" introduction has played. */
-  accelIntroDone: boolean;
+  layaSmart: boolean;
+  layaVoice: LayaVoice;
+  /** The spoken "I'm Laya…" introduction has played. */
+  layaIntroDone: boolean;
+  /** Someone who knew the assistant as Accel has heard that it's called Laya now. */
+  layaRenameNoticeDone: boolean;
   // Sign language (in the message box's sign mode, and the Learn course)
   signLanguage: SignLanguage;
   /** The person picked a sign language themselves (signLanguage starts as FSL either way). Learn asks once until then. */
@@ -92,6 +95,13 @@ export type Preferences = {
   signFlip: boolean;
   /** Show the sign camera large (about half the screen) instead of normal. */
   signCameraLarge: boolean;
+  /** Testing only (development builds): draw MediaPipe's points and the signing line on the camera. */
+  signShowLandmarks: boolean;
+  // First-time tutorial (HANDOFF.md §40)
+  /** The pages whose tour has been seen (or skipped). Empty again with "Show the tutorial again". */
+  tutorialSeen: string[];
+  /** Where the Laya button was dragged to: which side, and how far down (0 = top, 1 = bottom). Null = its first spot. */
+  layaButton: { side: 'left' | 'right'; y: number } | null;
 };
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -116,11 +126,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
   shakeToSos: false,
   shakeSensitivity: 'normal',
   sosCountdown: 5,
-  accelEnabled: false,
-  accelWakeWord: false,
-  accelSmart: true,
-  accelVoice: 'man',
-  accelIntroDone: false,
+  layaEnabled: false,
+  layaWakeWord: false,
+  layaSmart: true,
+  layaVoice: 'man',
+  layaIntroDone: false,
+  layaRenameNoticeDone: true,
   signLanguage: 'fsl',
   signLanguageChosen: false,
   signUnit: 'words',
@@ -129,6 +140,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   signAutoSentence: true,
   signFlip: false,
   signCameraLarge: false,
+  signShowLandmarks: false,
+  tutorialSeen: [],
+  layaButton: null,
 };
 
 // Each account's preferences are saved under its own key (preferencesKey),
@@ -153,13 +167,14 @@ function fromSaved(raw: string | null): Preferences | null {
   try {
     // Merged over the defaults, so settings added in later versions get a
     // sensible value instead of `undefined`.
-    const saved = JSON.parse(raw) as Partial<Preferences>;
+    // Old setting names (e.g. from when Laya was called Accel) moved over first.
+    const saved = migrateSavedPreferences(JSON.parse(raw) as Record<string, unknown>) as Partial<Preferences>;
     const profile = toProfile(saved.profile);
-    // Accel came later: someone who already chose Blind / low vision gets
+    // Laya came later: someone who already chose Blind / low vision gets
     // it switched on, like a new user with that profile would.
-    const accel =
-      saved.accelEnabled === undefined && profile === 'blind-low-vision' ? { accelEnabled: true, accelWakeWord: true } : {};
-    return { ...DEFAULT_PREFERENCES, ...saved, ...accel, profile };
+    const laya =
+      saved.layaEnabled === undefined && profile === 'blind-low-vision' ? { layaEnabled: true, layaWakeWord: true } : {};
+    return { ...DEFAULT_PREFERENCES, ...saved, ...laya, profile };
   } catch {
     return null; // unreadable
   }

@@ -1,7 +1,19 @@
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { getToken } from '@/utils/tokenStorage';
 import { emitUnauthorized } from '@/utils/authEvents';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
+
+// Sent with every request, for the admins' activity log (logins, limits
+// hit): the phone type and this app's version (app.json).
+const APP_HEADERS: Record<string, string> = {
+  'X-App-Platform': Platform.OS,
+  ...(Constants.expoConfig?.version ? { 'X-App-Version': Constants.expoConfig.version } : {}),
+};
+
+// A 401 that says why: an admin paused the account or is deleting it.
+const SIGN_OUT_CODES = ['ACCOUNT_SUSPENDED', 'ACCOUNT_DELETION_BY_ADMIN'];
 
 /** Full URL of an API endpoint, for pages opened in a browser rather than fetched. */
 export function apiUrl(endpoint: string): string {
@@ -58,7 +70,8 @@ const MESSAGES = {
 function friendlyMessage(status: number, data: ApiErrorBody | null): string {
   if ([502, 503, 504].includes(status) && !data?.code) return MESSAGES.unreachable;
   const message = data?.message;
-  if (typeof message === 'string' && message.trim() && message.length <= 300) return message;
+  // 500: a suspension message carries the admin's reason (up to 300).
+  if (typeof message === 'string' && message.trim() && message.length <= 500) return message;
   if (status === 429) return MESSAGES.tooMany;
   if (status >= 500) return MESSAGES.server;
   return MESSAGES.generic;
@@ -82,6 +95,7 @@ export async function apiFetch<T = unknown>(endpoint: string, options: ApiOption
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...APP_HEADERS,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...init.headers,
       },
@@ -106,7 +120,10 @@ export async function apiFetch<T = unknown>(endpoint: string, options: ApiOption
     // new login) comes back 401 — that must not sign the person out. Nor
     // must a wrong password at login, which sends no login at all.
     if (response.status === 401 && token && (await getToken()) === token) {
-      emitUnauthorized();
+      const code = typeof data?.code === 'string' ? data.code : '';
+      emitUnauthorized(
+        SIGN_OUT_CODES.includes(code) ? { code, message: friendlyMessage(response.status, data) } : null,
+      );
     }
     throw Object.assign(new Error(friendlyMessage(response.status, data)), {
       name: 'ApiError',

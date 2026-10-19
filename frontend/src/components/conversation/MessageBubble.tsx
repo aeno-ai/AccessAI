@@ -69,7 +69,7 @@ export function MessageBubble({ body, sender, createdAt, senderName, status, onS
         accessibilityLabel={spoken}
         accessibilityActions={[
           { name: 'activate', label: speaking ? 'Stop reading aloud' : 'Read aloud' },
-          ...(onShowBig ? [{ name: 'showBig', label: 'Show on screen' }] : []),
+          ...(onShowBig ? [{ name: 'showBig', label: 'Big text' }] : []),
         ]}
         onAccessibilityAction={(event) => {
           if (event.nativeEvent.actionName === 'activate') toggleSpeak();

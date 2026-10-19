@@ -1,8 +1,8 @@
 const { callAi, AiUnavailable, knownIntent } = require('../utils/aiClient');
 
-const OFFLINE = { message: "Accel can't think online right now.", code: 'ACCEL_OFFLINE' };
+const OFFLINE = { message: "Laya can't think online right now.", code: 'LAYA_OFFLINE' };
 
-// Nothing said to Accel is stored or logged — it goes to the AI service,
+// Nothing said to Laya is stored or logged — it goes to the AI service,
 // the answer comes back, and that's it.
 
 // "What does the person want?" → one intent id from the fixed list, plus

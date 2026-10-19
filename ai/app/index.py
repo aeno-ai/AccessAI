@@ -1,7 +1,7 @@
-"""The vector database: Accel's memory of example sentences.
+"""The vector database: Laya's memory of example sentences.
 
 How it works, in plain words:
-  1. intents.json lists every action Accel can do, each with example
+  1. intents.json lists every action Laya can do, each with example
      sentences ("take me to conversation mode", "gusto kong makipag-usap"…).
   2. Each example is turned into an EMBEDDING — 1024 numbers that capture
      its meaning (by the bge-m3 model in Ollama). Sentences that mean similar
@@ -10,7 +10,7 @@ How it works, in plain words:
      and can quickly find which stored examples are CLOSEST to a new
      sentence. "Closest" = cosine similarity: 1.0 is the same direction
      (same meaning), 0 is unrelated.
-  4. When someone talks to Accel, their sentence is embedded the same way
+  4. When someone talks to Laya, their sentence is embedded the same way
      and the nearest examples tell us which action they most likely mean.
 
 The index is rebuilt automatically whenever intents.json (or the embedding

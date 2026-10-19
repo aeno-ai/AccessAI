@@ -1,12 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useCameraPermission } from 'react-native-vision-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { SignOptionsSheet } from '@/components/conversation/SignOptionsSheet';
+import { SignCamera } from '@/components/sign/SignCamera';
 import { SIGN_LANGUAGE_NAMES, signChoiceLabel } from '@/components/sign/SignChoices';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { usePreferences, type SignLanguage, type SignUnit } from '@/hooks/use-preferences';
-import { signReady, useSignModels, useSignRecognition, type SignEvent } from '@/hooks/use-sign-recognition';
+import {
+  signReadingAvailable,
+  signReady,
+  useSignModels,
+  useSignRecognition,
+  type SignEvent,
+} from '@/hooks/use-sign-recognition';
 import { announce } from '@/utils/a11y';
 
 // After signing stops for this long, the words become a sentence.
@@ -21,16 +28,20 @@ type SignPanelProps = {
   onPause: (language: SignLanguage, unit: SignUnit) => void;
   /** Signs recognized since the last pause (for the Undo button). */
   pendingWords: number;
+  /** 'full': the sign camera screen — the camera takes most of the screen, no size button. */
+  size?: 'normal' | 'full';
 };
 
 // The camera's height: a share of the screen, within limits — Normal fits
 // above the message box; Large (the button on the camera) shows the signer
-// at about half the screen. Only the preview changes: the video sent for
-// reading is the same size either way.
+// at about half the screen. Only the preview changes: what's read is the
+// same either way.
 const cameraHeight = (screenHeight: number, large: boolean) =>
   large
     ? Math.round(Math.min(620, Math.max(360, screenHeight * 0.55)))
     : Math.round(Math.min(340, Math.max(240, screenHeight * 0.34)));
+// The sign camera screen: room left for the words below it.
+const fullCameraHeight = (screenHeight: number) => Math.round(Math.min(560, Math.max(320, screenHeight * 0.5)));
 
 const PHASE_TEXT = {
   off: 'Starting the camera…',
@@ -49,15 +60,15 @@ const PHASE_TEXT = {
  * sentence there. The signer checks it and taps Send — the app never sends
  * by itself.
  */
-export function SignPanel({ onWord, onUndoWord, onPause, pendingWords }: SignPanelProps) {
+export function SignPanel({ onWord, onUndoWord, onPause, pendingWords, size = 'normal' }: SignPanelProps) {
   const { prefs, setPref } = usePreferences();
   const { colors } = useAppTheme();
   const styles = useThemedStyles(makeStyles);
   const { height: screenHeight } = useWindowDimensions();
   const large = prefs.signCameraLarge;
-  const cameraRef = useRef<CameraView>(null);
-  const [permission, requestPermission] = useCameraPermissions();
-  const [cameraReady, setCameraReady] = useState(false);
+  const { hasPermission, requestPermission } = useCameraPermission();
+  // Testing only (development builds): MediaPipe's points on the camera.
+  const showLandmarks = __DEV__ && prefs.signShowLandmarks;
   const models = useSignModels();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [choices, setChoices] = useState<string[]>([]);
@@ -86,17 +97,17 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords }: SignPan
     } else if (event.type === 'hint') {
       setHint(event.message);
     }
+    // 'reject': not a sign it knows — nothing to add.
   };
 
-  const { phase, message, resume } = useSignRecognition({
-    cameraRef,
-    cameraReady,
-    active: Boolean(permission?.granted),
+  const { phase, message, resume, output, debug } = useSignRecognition({
+    active: hasPermission,
     language: prefs.signLanguage,
     unit,
     minConfidence: prefs.signConfidence,
     flip: prefs.signFlip,
     onEvent: handle,
+    debug: showLandmarks,
   });
 
   // Someone is signing again: not a pause yet.
@@ -105,8 +116,14 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords }: SignPan
   }, [phase]);
   useEffect(() => () => clearTimeout(pauseTimer.current), []);
 
-  if (!permission) return null;
-  if (!permission.granted) {
+  if (!signReadingAvailable) {
+    return (
+      <View style={styles.panel}>
+        <Text style={styles.text}>Sign language isn&apos;t available on this phone yet. You can still type.</Text>
+      </View>
+    );
+  }
+  if (!hasPermission) {
     return (
       <View style={styles.panel}>
         <Text style={styles.text}>Sign language uses the camera to see the signs.</Text>
@@ -119,17 +136,12 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords }: SignPan
 
   return (
     <View style={styles.panel}>
-      <View style={[styles.cameraWrap, { height: cameraHeight(screenHeight, large) }]}>
-        <CameraView
-          ref={cameraRef}
-          style={styles.camera}
-          mode="video"
-          mute
-          mirror={false}
-          videoQuality="480p"
+      <View style={[styles.cameraWrap, { height: size === 'full' ? fullCameraHeight(screenHeight) : cameraHeight(screenHeight, large) }]}>
+        <SignCamera
+          output={output}
           facing={prefs.signCamera}
-          onCameraReady={() => setCameraReady(true)}
-          accessible={false}
+          isActive={hasPermission}
+          debug={showLandmarks ? debug : undefined}
         />
         <View style={styles.statusBadge}>
           <View style={[styles.dot, phase === 'SIGN' && styles.dotSigning]} />
@@ -155,14 +167,16 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords }: SignPan
           <Text style={styles.optionsText}>{signChoiceLabel(prefs.signLanguage, unit)}</Text>
           <Ionicons name="chevron-down" size={18} color="#FFFFFF" />
         </Pressable>
-        <Pressable
-          style={styles.sizeButton}
-          onPress={() => setPref('signCameraLarge', !large)}
-          accessibilityRole="button"
-          accessibilityLabel={large ? 'Make the camera smaller' : 'Make the camera bigger'}
-        >
-          <Ionicons name={large ? 'contract-outline' : 'expand-outline'} size={22} color="#FFFFFF" />
-        </Pressable>
+        {size === 'full' ? null : (
+          <Pressable
+            style={styles.sizeButton}
+            onPress={() => setPref('signCameraLarge', !large)}
+            accessibilityRole="button"
+            accessibilityLabel={large ? 'Make the camera smaller' : 'Make the camera bigger'}
+          >
+            <Ionicons name={large ? 'contract-outline' : 'expand-outline'} size={22} color="#FFFFFF" />
+          </Pressable>
+        )}
       </View>
 
       <SignOptionsSheet visible={optionsOpen} models={models} onClose={() => setOptionsOpen(false)} />

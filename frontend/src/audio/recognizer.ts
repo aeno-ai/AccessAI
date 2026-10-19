@@ -5,16 +5,16 @@ import type * as SpeechRecognition from 'expo-speech-recognition';
  * The ONE place that talks to the phone's speech recognizer.
  *
  * The phone has a single recognizer, but several parts of the app want it:
- * the mic in Conversation, the mic in each friend chat, Accel's "listening…"
- * and the "Hey Accel" listener. The native module sends every result to
+ * the mic in Conversation, the mic in each friend chat, Laya's "listening…"
+ * and the "Hey Laya" listener. The native module sends every result to
  * every listener — so without this, words said in one place would also land
  * in another screen's message box.
  *
  * Here the mic always has exactly one OWNER, and only the owner hears the
  * results. Taking the mic from someone else stops their session first and
  * waits for it to really end, so its last events can't leak into the new
- * one. "Blockers" (Accel open, an SOS countdown…) tell the "Hey Accel"
- * listener to pause. The app talking is NOT a blocker — "Hey Accel" keeps
+ * one. "Blockers" (Laya open, an SOS countdown…) tell the "Hey Laya"
+ * listener to pause. The app talking is NOT a blocker — "Hey Laya" keeps
  * listening so it can interrupt; it reads `appSpeech()` to ignore its own
  * voice.
  */
@@ -53,7 +53,7 @@ let subscribed = false;
 
 /**
  * Looks at a finished result before its owner gets it; returning true keeps
- * it from the owner. Accel uses this to hear "Hey Accel" said into another
+ * it from the owner. Laya uses this to hear "Hey Laya" said into another
  * mic (Conversation, a friend chat) — there's only one recognizer.
  */
 export type ResultInterceptor = (owner: string, event: EventMap['result']) => boolean;
@@ -171,7 +171,7 @@ export const isOwner = (id: string) => owner === id;
 export const isActive = () => active;
 export const currentOwner = () => owner;
 
-/** Pause the "Hey Accel" listener while `reason` lasts (Accel talking, SOS…). */
+/** Pause the "Hey Laya" listener while `reason` lasts (Laya talking, SOS…). */
 export function block(reason: string) {
   if (blockers.has(reason)) return;
   blockers.add(reason);

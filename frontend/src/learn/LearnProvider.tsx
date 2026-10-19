@@ -4,53 +4,40 @@ import { apiFetch, isApiError } from '@/api/apiClient';
 import { useBootstrap } from '@/hooks/use-bootstrap';
 import { useFriends } from '@/realtime/FriendsProvider';
 import type { Lesson } from './lessons';
-import {
-  DEFAULT_DAILY_GOAL,
-  earnedBadges,
-  fullHearts,
-  lessonXp,
-  loseHeart as loseOne,
-  type BadgeId,
-} from './progress';
-import type { Completion, DailyGoal, Hearts } from './types';
+import type { Completion } from './types';
 
 /**
- * Learn's saved state for the signed-in account, offline first:
- *   - the log of finished lessons (everything else is worked out from it —
- *     see progress.ts), and an outbox of the ones the account doesn't have yet;
- *   - hearts and the daily goal (this phone only).
+ * Learn's saved state for the signed-in account, offline first: the log of
+ * finished lessons (everything else is worked out from it — see
+ * progress.ts), and an outbox of the ones the account doesn't have yet.
  * Kept on the phone under `learn:v1:<userId>`. The outbox is sent, and the
  * account's copy fetched back (for a new phone), when Learn opens, when the
  * live connection comes back, and after each lesson.
+ *
+ * Hearts and the daily goal were removed on 2026-10-17 (HANDOFF.md §38);
+ * phones that saved them simply ignore them now.
  */
 type LearnState = {
   completions: Completion[];
   outbox: string[];
-  hearts: Hearts;
-  dailyGoal: DailyGoal;
 };
 
 const storageKey = (userId: string) => `learn:v1:${userId}`;
 const SYNC_CHUNK = 200;
 
-const freshState = (): LearnState => ({ completions: [], outbox: [], hearts: fullHearts(Date.now()), dailyGoal: DEFAULT_DAILY_GOAL });
+const freshState = (): LearnState => ({ completions: [], outbox: [] });
 
 const newClientId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 const byTime = (a: Completion, b: Completion) => a.completedAt - b.completedAt;
 
-export type LessonResult = { lesson: Lesson; mistakes: number; quizQuestions: number; cameraPassed: number };
+export type LessonResult = { lesson: Lesson; mistakes: number; cameraPassed: number };
 
 type LearnContextValue = {
   ready: boolean;
   completions: Completion[];
-  hearts: Hearts;
-  dailyGoal: DailyGoal;
-  setDailyGoal: (goal: DailyGoal) => void;
-  /** A wrong quiz answer. */
-  loseHeart: () => void;
-  /** Saves a finished lesson (works offline) and returns what it earned. */
-  finishLesson: (result: LessonResult) => Promise<{ completion: Completion; newBadges: BadgeId[] }>;
+  /** Saves a finished lesson (works offline). */
+  finishLesson: (result: LessonResult) => Promise<{ completion: Completion }>;
   /** Sends what's waiting and fetches the account's copy. Quiet offline. */
   sync: () => Promise<void>;
 };
@@ -82,7 +69,11 @@ export function LearnProvider({ children }: { children: ReactNode }) {
     if (!userId) return;
     let cancelled = false;
     void AsyncStorage.getItem(storageKey(userId))
-      .then((raw) => (raw ? { ...freshState(), ...(JSON.parse(raw) as Partial<LearnState>) } : freshState()))
+      .then((raw) => {
+        if (!raw) return freshState();
+        const saved = JSON.parse(raw) as Partial<LearnState>;
+        return { completions: saved.completions ?? [], outbox: saved.outbox ?? [] };
+      })
       .catch(freshState)
       .then((loaded) => {
         if (cancelled) return;
@@ -146,51 +137,30 @@ export function LearnProvider({ children }: { children: ReactNode }) {
     if (ready && connected) void sync();
   }, [ready, connected, sync]);
 
-  const loseHeart = useCallback(() => {
-    update((current) => ({ ...current, hearts: loseOne(current.hearts, Date.now()) }));
-  }, [update]);
-
-  const setDailyGoal = useCallback((goal: DailyGoal) => update((current) => ({ ...current, dailyGoal: goal })), [update]);
-
   const finishLesson = useCallback(
-    async ({ lesson, mistakes, quizQuestions, cameraPassed }: LessonResult) => {
-      const now = Date.now();
+    async ({ lesson, mistakes, cameraPassed }: LessonResult) => {
       const completion: Completion = {
         clientId: newClientId(),
         course: lesson.course,
         lessonId: lesson.id,
-        xp: lessonXp(lesson.kind, { mistakes, quizQuestions, cameraPassed }),
         mistakes,
         cameraPassed,
-        completedAt: now,
+        completedAt: Date.now(),
       };
-      const before = earnedBadges(stateRef.current.completions, now);
       update((current) => ({
         ...current,
         completions: [...current.completions, completion],
         outbox: [...current.outbox, completion.clientId],
-        // A review fills the hearts back up.
-        hearts: lesson.kind === 'review' ? fullHearts(now) : current.hearts,
       }));
-      const after = earnedBadges(stateRef.current.completions, now);
       void sync();
-      return { completion, newBadges: [...after].filter((id) => !before.has(id)) };
+      return { completion };
     },
     [update, sync],
   );
 
   const value = useMemo(
-    () => ({
-      ready,
-      completions: state.completions,
-      hearts: state.hearts,
-      dailyGoal: state.dailyGoal,
-      setDailyGoal,
-      loseHeart,
-      finishLesson,
-      sync,
-    }),
-    [ready, state, setDailyGoal, loseHeart, finishLesson, sync],
+    () => ({ ready, completions: state.completions, finishLesson, sync }),
+    [ready, state, finishLesson, sync],
   );
 
   return <LearnContext.Provider value={value}>{children}</LearnContext.Provider>;
@@ -200,14 +170,4 @@ export function useLearn() {
   const context = useContext(LearnContext);
   if (!context) throw new Error('useLearn must be used inside LearnProvider');
   return context;
-}
-
-/** The time now, updated every `everyMs` while the screen is open (hearts coming back). */
-export function useNow(everyMs = 30 * 1000): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), everyMs);
-    return () => clearInterval(timer);
-  }, [everyMs]);
-  return now;
 }

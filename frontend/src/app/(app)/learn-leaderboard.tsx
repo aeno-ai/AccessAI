@@ -9,9 +9,15 @@ import { MaxContentWidth } from '@/constants/theme';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { useLearn } from '@/learn/LearnProvider';
 
-type Row = { userId: string; name: string; xp: number; me: boolean };
+type Row = { userId: string; name: string; lessons: number; me: boolean };
 
-/** This week's XP for you and your friends (the week starts Monday). Needs the internet. */
+const lessonsText = (n: number) => `${n} lesson${n === 1 ? '' : 's'}`;
+
+/**
+ * How many different lessons you and your friends finished this week (the
+ * week starts Monday; doing one again doesn't count twice). Needs the
+ * internet. Learn keeps no points (HANDOFF.md §38).
+ */
 export default function LeaderboardScreen() {
   const { colors } = useAppTheme();
   const styles = useThemedStyles(makeStyles);
@@ -47,22 +53,20 @@ export default function LeaderboardScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}
       >
-        <Text style={styles.note}>XP you and your friends earned in Learn since Monday.</Text>
+        <Text style={styles.note}>Lessons you and your friends finished since Monday.</Text>
         {error ? <Text style={styles.note}>{error}</Text> : null}
-        {rows && rows.length <= 1 ? (
-          <Text style={styles.note}>Add friends to learn together and see who earns the most XP.</Text>
-        ) : null}
+        {rows && rows.length <= 1 ? <Text style={styles.note}>Add friends to learn together and see who finishes the most.</Text> : null}
         {rows?.map((row, index) => (
           <View
             key={row.userId}
             style={[styles.row, row.me && styles.rowMe]}
             accessible
-            accessibilityLabel={`Number ${index + 1}: ${row.me ? 'You' : row.name}, ${row.xp} XP`}
+            accessibilityLabel={`Number ${index + 1}: ${row.me ? 'You' : row.name}, ${lessonsText(row.lessons)}`}
           >
             <Text style={styles.rank}>{index + 1}</Text>
-            {index === 0 && row.xp > 0 ? <Ionicons name="trophy" size={22} color={colors.primary} /> : null}
+            {index === 0 && row.lessons > 0 ? <Ionicons name="trophy" size={22} color={colors.primary} /> : null}
             <Text style={styles.name}>{row.me ? 'You' : row.name}</Text>
-            <Text style={styles.xp}>{row.xp} XP</Text>
+            <Text style={styles.count}>{lessonsText(row.lessons)}</Text>
           </View>
         ))}
       </ScrollView>
@@ -108,7 +112,7 @@ const makeStyles = (t: AppTheme) =>
       fontWeight: t.weight('700'),
       color: t.colors.textPrimary,
     },
-    xp: {
+    count: {
       fontSize: t.font(16),
       fontWeight: t.weight('800'),
       color: t.colors.textPrimary,

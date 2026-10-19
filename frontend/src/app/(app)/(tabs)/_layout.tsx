@@ -1,7 +1,28 @@
-import { Tabs } from 'expo-router/js-tabs';
+import { useEffect } from 'react';
+import { View } from 'react-native';
+import { BottomTabBar, Tabs, type BottomTabBarProps } from 'expo-router/js-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '@/hooks/use-app-theme';
+import { setTabBarHeight } from '@/hooks/use-tab-bar-height';
 import { useFriends } from '@/realtime/FriendsProvider';
+import { setTourTarget } from '@/tutorial/targets';
+
+/**
+ * The normal tab bar, measured: the tutorial can light it up ("home.tabs"),
+ * and the Laya button keeps above it.
+ */
+function TrackedTabBar(props: BottomTabBarProps) {
+  useEffect(() => () => setTabBarHeight(0), []);
+  return (
+    <View
+      ref={(node) => setTourTarget('home.tabs', node)}
+      collapsable={false}
+      onLayout={(event) => setTabBarHeight(event.nativeEvent.layout.height)}
+    >
+      <BottomTabBar {...props} />
+    </View>
+  );
+}
 
 export default function TabsLayout() {
   const { colors, font, weight } = useAppTheme();
@@ -20,6 +41,7 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      tabBar={(props) => <TrackedTabBar {...props} />}
       screenOptions={{
         headerShown: false,
         // A tab you're not looking at stays as it was ("frozen") instead of

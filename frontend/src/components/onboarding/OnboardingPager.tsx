@@ -48,20 +48,24 @@ export default function OnboardingPager() {
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
 
+  // Picking an option applies it straight away (owner, 2026-10-17,
+  // HANDOFF.md §39): text size, colors, reading aloud, Laya — so someone
+  // who picks Blind / low vision gets big, high-contrast text and Laya for
+  // the rest of onboarding. Picking another option applies that one.
+  const selectOption = (option: string) => {
+    setSelectedOption(option);
+    applyProfile(toProfile(option));
+    // Blind / low vision turns on "Hey Laya", which needs the microphone:
+    // ask now, so it works from the very first screen.
+    if (toProfile(option) === 'blind-low-vision') {
+      void speechModule?.requestPermissionsAsync().catch(() => undefined);
+    }
+  };
+
   // No navigation needed: once onboarding is marked complete, the root
   // layout's guards switch this (already logged-in) user over to the app.
   const finishOnboarding = async () => {
-    if (selectedOption) {
-      if (userId) await saveAccessibilityPreference(userId, selectedOption);
-      // Text size, colors, reading aloud… set up for what they picked. All
-      // of it can be changed later in Settings.
-      applyProfile(toProfile(selectedOption));
-      // Blind / low vision turns on "Hey Accel", which needs the microphone:
-      // ask now, so it works from the very first screen.
-      if (toProfile(selectedOption) === 'blind-low-vision') {
-        await speechModule?.requestPermissionsAsync().catch(() => undefined);
-      }
-    }
+    if (selectedOption && userId) await saveAccessibilityPreference(userId, selectedOption);
     await completeOnboarding();
   };
 
@@ -113,7 +117,7 @@ export default function OnboardingPager() {
           <PersonalizePage
             width={pagerWidth}
             selectedOption={selectedOption}
-            onSelectOption={setSelectedOption}
+            onSelectOption={selectOption}
           />
         );
       case 'get-started':

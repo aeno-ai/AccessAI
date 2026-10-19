@@ -1,4 +1,5 @@
 const { body, query } = require('express-validator');
+const { GENERIC } = require('./common');
 
 // Same password rule the controller used to enforce by hand — now declared
 // once, up front, before the request ever reaches register(). A function of
@@ -154,6 +155,17 @@ const emailChangeCodeValidators = [
 
 const changeEmailValidators = [codeRules()];
 
+// Signing out: optionally this phone's id, so its push address goes too
+// (the same rule as DELETE /push/token).
+const logoutValidators = [
+  body('deviceId').optional().isString().withMessage(GENERIC).bail().matches(/^[A-Za-z0-9-]{8,64}$/).withMessage(GENERIC),
+];
+
+// "I agree" to updated Terms: the version the app showed ('2026-10-17').
+const acceptTermsValidators = [
+  body('version').isString().withMessage(GENERIC).bail().matches(/^\d{4}-\d{2}-\d{2}$/).withMessage(GENERIC),
+];
+
 module.exports = {
   registerValidators,
   loginValidators,
@@ -170,5 +182,7 @@ module.exports = {
   changePasswordValidators,
   emailChangeCodeValidators,
   changeEmailValidators,
+  logoutValidators,
+  acceptTermsValidators,
   strongPassword,
 };

@@ -1,4 +1,4 @@
-"""See how Accel understands a sentence, step by step. Ollama must be running.
+"""See how Laya understands a sentence, step by step. Ollama must be running.
 
     cd ai
     .venv\\Scripts\\python -m app.explain "i want to talk with someone"

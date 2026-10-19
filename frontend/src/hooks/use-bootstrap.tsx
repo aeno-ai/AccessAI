@@ -14,7 +14,7 @@ import { onUnauthorized } from '@/utils/authEvents';
 import { setConversationAccount } from '@/db/conversations';
 import { clearFriendData } from '@/db/friends';
 import { clearCachedContacts } from '@/utils/emergencyContacts';
-import { unregisterPush } from '@/notifications/push';
+import { pushDeviceId, unregisterPush } from '@/notifications/push';
 import { clearSosCache } from '@/realtime/sosCache';
 import { usePreferences } from '@/hooks/use-preferences';
 import { decodeJwtPayload, isTokenExpired } from '@/utils/jwt';
@@ -38,7 +38,13 @@ type BootstrapContextValue = {
    * sign-up) — always onboarding, and never the phone's older settings.
    */
   signIn: (token: string, options?: { isNew?: boolean }) => Promise<void>;
+  /** Signing out on purpose (the menu): the server records it and drops this phone's push address. */
   signOut: () => Promise<void>;
+  /**
+   * Why the server signed this phone out, when it said (an admin paused the
+   * account or is deleting it) — shown on the login screen until the next login.
+   */
+  signOutNotice: string | null;
   completeOnboarding: () => Promise<void>;
 };
 
@@ -124,6 +130,7 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<UserRole | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [signOutNotice, setSignOutNotice] = useState<string | null>(null);
   const appStateRef = useRef(AppState.currentState);
 
   useEffect(() => {
@@ -162,7 +169,7 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
     async (token: string, options: { isNew?: boolean } = {}) => {
       await setToken(token);
       const id = userIdFromToken(token);
-      // Before the app shows: this account's own text size, colors, Accel…
+      // Before the app shows: this account's own text size, colors, Laya…
       if (id && !options.isNew) await adoptLegacy(id);
       // Only this account's in-person conversations from here on.
       await setConversationAccount(id, { adopt: !options.isNew });
@@ -172,13 +179,15 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
       setFirstName(firstNameFromToken(token));
       setUserId(id);
       setHasOnboarded(onboarded);
+      setSignOutNotice(null);
       setIsLoggedIn(true);
     },
     [loadAccount],
   );
 
-  const signOut = useCallback(async () => {
-    // Before the token goes: telling the server needs it.
+  // Forgets the login and this account's data on the phone. Used by
+  // signOut and when the server refuses the login (a 401).
+  const endSession = useCallback(async () => {
     await unregisterPush();
     await clearToken();
     // Emergency contacts, friends and chats are kept on the phone so they
@@ -196,6 +205,22 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
     setFirstName(null);
     setUserId(null);
   }, [loadAccount]);
+
+  const signOut = useCallback(async () => {
+    // Before the token goes: telling the server needs it. Never waits long —
+    // offline, signing out still works at once.
+    try {
+      const deviceId = await pushDeviceId();
+      await apiFetch('/auth/logout', {
+        method: 'POST',
+        timeoutMs: 3000,
+        body: JSON.stringify(deviceId ? { deviceId } : {}),
+      });
+    } catch {
+      // Offline or refused: this phone signs out anyway.
+    }
+    await endSession();
+  }, [endSession]);
 
   const completeOnboarding = useCallback(async () => {
     if (userId) await markOnboardingComplete(userId);
@@ -231,8 +256,16 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Any API call anywhere that comes back 401 should end the session
-  // immediately, not just at the next boot/resume check.
-  useEffect(() => onUnauthorized(() => void signOut()), [signOut]);
+  // immediately, not just at the next boot/resume check. Not signOut: its
+  // /auth/logout call would only be refused again.
+  useEffect(
+    () =>
+      onUnauthorized((reason) => {
+        setSignOutNotice(reason?.message ?? null);
+        void endSession();
+      }),
+    [endSession],
+  );
 
   const value = useMemo(
     () => ({
@@ -244,9 +277,10 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
       userId,
       signIn,
       signOut,
+      signOutNotice,
       completeOnboarding,
     }),
-    [ready, isLoggedIn, hasOnboarded, role, firstName, userId, signIn, signOut, completeOnboarding],
+    [ready, isLoggedIn, hasOnboarded, role, firstName, userId, signIn, signOut, signOutNotice, completeOnboarding],
   );
 
   return <BootstrapContext.Provider value={value}>{children}</BootstrapContext.Provider>;

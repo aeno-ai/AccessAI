@@ -4,8 +4,13 @@ const EmergencyContact = require('../models/EmergencyContact');
 const Conversation = require('../models/Conversation');
 const SOSEvent = require('../models/SOSEvent');
 const { recordAdminAction } = require('../utils/auditLog');
+const { ADMIN_DELETION_DAYS } = require('../constants/legal');
+const { isAdminDeletion, isSuspended, usableFilter } = require('../utils/accountState');
+const { disconnectUser, notifyFriendsChanged } = require('../realtime/io');
+const { statusOf } = require('./adminRecordsController');
 
 const DEFAULT_PAGE_SIZE = 20;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Search text goes into a RegExp, so every regex special character is
 // escaped first — otherwise a search like ".*" or "(a+)+$" would be
@@ -23,9 +28,29 @@ const toAdminView = (user) => ({
   email: user.email,
   role: user.role,
   isActive: user.isActive !== false,
+  // 'active', 'suspended', 'deleting' or 'deactivated' (the old switch).
+  status: statusOf(user),
+  emailVerified: user.emailVerified !== false,
+  suspendedUntil: isSuspended(user) ? user.suspendedUntil : null,
+  suspendedReason: isSuspended(user) ? user.suspendedReason ?? null : null,
+  suspendedAt: isSuspended(user) ? user.suspendedAt ?? null : null,
+  deletionScheduledFor: user.deletionScheduledFor ?? null,
+  // 'admin' (only an admin can undo it) or 'user' (they asked for it).
+  deletionBy: user.deletionScheduledFor ? (user.deletionBy === 'admin' ? 'admin' : 'user') : null,
+  deletionReason: isAdminDeletion(user) ? user.deletionReason ?? null : null,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
 });
+
+// The list's status filter, as MongoDB conditions.
+const STATUS_FILTERS = {
+  active: () => usableFilter(),
+  suspended: () => ({ isActive: { $ne: false }, deletionScheduledFor: null, suspendedUntil: { $gt: new Date() } }),
+  deleting: () => ({ isActive: { $ne: false }, deletionScheduledFor: { $ne: null } }),
+  deactivated: () => ({ isActive: false }),
+};
+// 'inactive' was the old name for deactivated.
+STATUS_FILTERS.inactive = STATUS_FILTERS.deactivated;
 
 const listUsers = async (req, res, next) => {
   try {
@@ -35,14 +60,15 @@ const listUsers = async (req, res, next) => {
       locations: ['query'],
     });
 
-    const filter = {};
+    // $and: the status conditions have their own $or.
+    const conditions = [];
     if (search) {
       const pattern = new RegExp(escapeRegex(search), 'i');
-      filter.$or = [{ name: pattern }, { email: pattern }];
+      conditions.push({ $or: [{ name: pattern }, { email: pattern }] });
     }
-    if (role) filter.role = role;
-    if (status === 'active') filter.isActive = { $ne: false };
-    if (status === 'inactive') filter.isActive = false;
+    if (role) conditions.push({ role });
+    if (status) conditions.push(STATUS_FILTERS[status]());
+    const filter = conditions.length ? { $and: conditions } : {};
 
     const [users, total] = await Promise.all([
       User.find(filter)
@@ -89,22 +115,25 @@ const getUser = async (req, res, next) => {
   }
 };
 
+// Only turns an old "deactivated" account back on (the validator only
+// accepts isActive: true). Locking an account is Suspend or Delete in 30
+// days now (HANDOFF.md §42).
 const updateUserStatus = async (req, res, next) => {
   try {
-    const { isActive } = req.body;
     const user = await User.findById(req.params.id).select('-password');
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     const wasActive = user.isActive !== false;
-    user.isActive = isActive;
+    user.isActive = true;
     await user.save();
 
     await recordAdminAction(req, {
-      action: isActive ? 'user.reactivate' : 'user.deactivate',
+      action: 'user.reactivate',
       targetType: 'user',
       targetId: user._id,
       details: { email: user.email, wasActive },
     });
+    if (!wasActive) void notifyFriendsChanged(user._id);
 
     res.json({ user: toAdminView(user) });
   } catch (error) {
@@ -112,4 +141,142 @@ const updateUserStatus = async (req, res, next) => {
   }
 };
 
-module.exports = { listUsers, getUser, updateUserStatus };
+// After an admin locks an account: its open connections close (the
+// reconnect is refused), and its friends' lists drop it at once.
+const lockedOut = (userId) => {
+  disconnectUser(userId);
+  void notifyFriendsChanged(userId);
+};
+
+// POST /users/:id/suspend { days: 1 | 7 | 30, reason }. Suspending again
+// replaces the old end date and reason.
+const suspendUser = async (req, res, next) => {
+  try {
+    const { days, reason } = req.body;
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (user.isActive === false || isAdminDeletion(user)) {
+      return res.status(409).json({ message: 'This account is already locked.' });
+    }
+
+    const now = new Date();
+    user.suspendedUntil = new Date(now.getTime() + days * DAY_MS);
+    user.suspendedReason = reason;
+    user.suspendedAt = now;
+    user.suspendedBy = req.admin._id;
+    await user.save();
+
+    await recordAdminAction(req, {
+      action: 'user.suspend',
+      targetType: 'user',
+      targetId: user._id,
+      details: { email: user.email, days, reason, until: user.suspendedUntil },
+    });
+    lockedOut(user._id);
+    res.json({ user: toAdminView(user) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// DELETE /users/:id/suspend: lifts it now.
+const liftSuspension = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (!isSuspended(user)) return res.status(400).json({ message: 'This account is not suspended.' });
+
+    const until = user.suspendedUntil;
+    user.suspendedUntil = undefined;
+    user.suspendedReason = undefined;
+    user.suspendedAt = undefined;
+    user.suspendedBy = undefined;
+    await user.save();
+
+    await recordAdminAction(req, {
+      action: 'user.suspend.lift',
+      targetType: 'user',
+      targetId: user._id,
+      details: { email: user.email, until },
+    });
+    void notifyFriendsChanged(user._id);
+    res.json({ user: toAdminView(user) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /users/:id/deletion { reason }: locked at once, erased after
+// ADMIN_DELETION_DAYS by the same job as a person's own deletion
+// (utils/accountDeletion.js). Replaces a deletion the person asked for.
+const scheduleDeletion = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (isAdminDeletion(user)) {
+      return res.status(409).json({ message: 'This account is already being deleted.' });
+    }
+
+    const previous = user.deletionScheduledFor ?? null;
+    user.deletionScheduledFor = new Date(Date.now() + ADMIN_DELETION_DAYS * DAY_MS);
+    user.deletionBy = 'admin';
+    user.deletionReason = req.body.reason;
+    user.deletionScheduledByAdmin = req.admin._id;
+    await user.save();
+
+    await recordAdminAction(req, {
+      action: 'user.delete.schedule',
+      targetType: 'user',
+      targetId: user._id,
+      details: { email: user.email, reason: req.body.reason, on: user.deletionScheduledFor, replaced: previous },
+    });
+    lockedOut(user._id);
+    res.json({ user: toAdminView(user) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// DELETE /users/:id/deletion: undoes an admin's deletion. A deletion the
+// person asked for is theirs to cancel (by logging in), not an admin's.
+const cancelDeletion = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (!isAdminDeletion(user)) {
+      return res.status(400).json({
+        message: user.deletionScheduledFor
+          ? 'This person asked to delete their account. Only they can cancel it, by logging in.'
+          : 'This account is not being deleted.',
+      });
+    }
+
+    const on = user.deletionScheduledFor;
+    user.deletionScheduledFor = undefined;
+    user.deletionBy = undefined;
+    user.deletionReason = undefined;
+    user.deletionScheduledByAdmin = undefined;
+    await user.save();
+
+    await recordAdminAction(req, {
+      action: 'user.delete.cancel',
+      targetType: 'user',
+      targetId: user._id,
+      details: { email: user.email, on },
+    });
+    void notifyFriendsChanged(user._id);
+    res.json({ user: toAdminView(user) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  listUsers,
+  getUser,
+  updateUserStatus,
+  suspendUser,
+  liftSuspension,
+  scheduleDeletion,
+  cancelDeletion,
+};

@@ -9,4 +9,7 @@ buildSignClips();
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
 
+// The sign models' weights (assets/sign-models/*/model.bin), bundled as files.
+config.resolver.assetExts.push('bin');
+
 module.exports = config;

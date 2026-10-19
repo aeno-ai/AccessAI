@@ -74,7 +74,7 @@ type FriendsContextValue = {
    * (they're still read aloud / announced, per the user's settings).
    */
   setActiveChat: (friendId: string | null) => void;
-  /** A chat was read (e.g. aloud by Accel): no longer unread here, and the friend sees "Seen" when online. */
+  /** A chat was read (e.g. aloud by Laya): no longer unread here, and the friend sees "Seen" when online. */
   markRead: (friendId: string) => Promise<void>;
   /** Friends' SOS alerts that are still going (newest location included). Saved for offline. */
   friendSos: FriendSos[];
@@ -287,7 +287,17 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
       reportAppState();
       void catchUp();
     });
-    socket.on('disconnect', () => setConnected(false));
+    socket.on('disconnect', (reason) => {
+      setConnected(false);
+      // The server closed it: an admin paused this account or is deleting
+      // it. Asking now signs the app out with the reason at once (the 401);
+      // if the login is still fine, connect again.
+      if (reason === 'io server disconnect') {
+        apiFetch('/auth/me', { timeoutMs: 6000 })
+          .then(() => socket.connect())
+          .catch(() => undefined);
+      }
+    });
 
     socket.on('friends:changed', () => void refresh());
 
@@ -397,7 +407,7 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     };
   }, [live, refresh, catchUp, hub, updateFriendSos, showAlertFor]);
 
-  // While a friend's SOS is on screen, "Hey Accel" stays quiet.
+  // While a friend's SOS is on screen, "Hey Laya" stays quiet.
   useEffect(() => {
     if (alert) block('sos-alert');
     else unblock('sos-alert');

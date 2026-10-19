@@ -20,11 +20,11 @@ export default function NeedsScreen() {
       return;
     }
     const { title } = PROFILE_LABELS[profile];
-    // Someone leaving Blind / low vision may rely on Accel to get around:
+    // Someone leaving Blind / low vision may rely on Laya to get around:
     // say plainly what goes away.
     const turnsOff =
       prefs.profile === 'blind-low-vision'
-        ? 'This turns off Accel, the voice assistant, and the large high-contrast text. '
+        ? 'This turns off Laya, the voice assistant, and the large high-contrast text. '
         : '';
     Alert.alert(
       'Apply suggested settings?',

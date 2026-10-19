@@ -5,11 +5,14 @@ const { TERMS_VERSION, DELETION_GRACE_DAYS } = require('../constants/legal');
 const { purgeUser } = require('../utils/accountDeletion');
 const { sendCode, checkCode, codeDelivery } = require('../utils/emailCodes');
 const { takeCodeSlot, slotRefused } = require('../utils/codeGate');
-const { DEACTIVATED, signUserToken, shouldRenew, isDeletionDue } = require('../utils/userSession');
+const { signUserToken, shouldRenew, isDeletionDue } = require('../utils/userSession');
+const { refusalFor } = require('../utils/accountState');
+const { recordUserActivity } = require('../utils/activityLog');
 const { ensureFriendCode } = require('../utils/friendCode');
 const { signTicket, verifyTicket } = require('../utils/authTickets');
 const { sendMail } = require('../utils/mailer');
 const { setPasswordVerified, passwordFingerprint } = require('../utils/passwords');
+const { removePushDevice } = require('./pushController');
 
 // One answer for every failed login (no account, no password yet, wrong
 // password), so it can't be used to probe which emails exist — but it says
@@ -44,8 +47,6 @@ const checkCredentials = async (email, password) => {
   const isMatch = await bcrypt.compare(password, user.password);
   return isMatch ? { user } : { user: null, who: user._id, why: 'wrong password' };
 };
-
-const findByCredentials = async (email, password) => (await checkCredentials(email, password)).user;
 
 // Sign-up, login and "Forgot password" don't wait for the email: sending
 // through Gmail takes ~2 s, and the person would sit watching a spinner. The
@@ -104,6 +105,7 @@ const register = async (req, res, next) => {
       termsVersion: TERMS_VERSION,
       ...(role === 'pwd' ? { pwdDeclaredAt: now } : {}),
     });
+    recordUserActivity(req, { userId: user._id, type: 'signup', method: 'password' });
 
     // No token yet: the account can't be used until the emailed code is
     // entered (verifyEmail below), which then logs the user straight in.
@@ -129,13 +131,24 @@ const login = async (req, res, next) => {
     if (!user) {
       // Tells the developer exactly why — the person sees the one message.
       console.log(`Login refused${who ? ` for user ${who}` : ''}: ${why}`);
+      recordUserActivity(req, { userId: who, type: 'login.failed', method: 'password', reason: why });
       return res.status(401).json(INVALID_CREDENTIALS);
     }
 
-    // Only revealed after the correct password, so it can't be used to
-    // probe which emails have accounts.
-    if (user.isActive === false) {
-      return res.status(403).json(DEACTIVATED);
+    // Past its date (the person's own deletion or an admin's): erased now,
+    // before anything else is said about it.
+    if (isDeletionDue(user)) {
+      await purgeUser(user._id);
+      return res.status(401).json(INVALID_CREDENTIALS);
+    }
+
+    // Deactivated, suspended or being deleted by an admin. Only revealed
+    // after the correct password, so it can't be used to probe which emails
+    // have accounts.
+    const refusal = refusalFor(user);
+    if (refusal) {
+      recordUserActivity(req, { userId: user._id, type: 'login.refused', method: 'password', reason: refusal.body.code });
+      return res.status(refusal.status).json(refusal.body);
     }
 
     // Sends a fresh code (unless one went out in the last minute) and lets
@@ -151,13 +164,11 @@ const login = async (req, res, next) => {
       });
     }
 
+    // The person's own deletion (an admin's was refused above). No token:
+    // the app shows a prompt instead, and only a call to /restore (which
+    // re-checks the password) lets them back in.
     if (user.deletionScheduledFor) {
-      if (isDeletionDue(user)) {
-        await purgeUser(user._id);
-        return res.status(401).json(INVALID_CREDENTIALS);
-      }
-      // No token: the app shows a prompt instead, and only a call to
-      // /restore (which re-checks the password) lets them back in.
+      recordUserActivity(req, { userId: user._id, type: 'login.refused', method: 'password', reason: 'ACCOUNT_PENDING_DELETION' });
       return res.status(403).json({
         code: 'ACCOUNT_PENDING_DELETION',
         message: 'This account is scheduled for deletion.',
@@ -165,6 +176,7 @@ const login = async (req, res, next) => {
       });
     }
 
+    recordUserActivity(req, { userId: user._id, type: 'login.success', method: 'password' });
     res.json({ token: signUserToken(user) });
   } catch (error) {
     next(error);
@@ -184,12 +196,14 @@ const verifyEmail = async (req, res, next) => {
       return res.status(400).json(INVALID_CODE);
     }
 
-    if (user.isActive === false) {
-      return res.status(403).json(DEACTIVATED);
+    const refusal = refusalFor(user);
+    if (refusal) {
+      return res.status(refusal.status).json(refusal.body);
     }
 
     await User.updateOne({ _id: user._id }, { emailVerified: true });
     console.log(`Email verified for user ${user._id}`);
+    recordUserActivity(req, { userId: user._id, type: 'email.verified' });
     res.json({ message: 'Email verified', token: signUserToken(user) });
   } catch (error) {
     next(error);
@@ -225,8 +239,9 @@ const forgotPassword = async (req, res, next) => {
     // A Google account (no password) gets no email at all: it can't make a
     // password. It still gets the same answer as everyone, so this can't
     // tell anyone which emails have accounts; the screen tells people who
-    // signed up with Google to use "Continue with Google".
-    if (user && user.isActive !== false && user.password) {
+    // signed up with Google to use "Continue with Google". Nor does an
+    // account an admin deactivated, paused or is deleting.
+    if (user && !refusalFor(user) && user.password) {
       sendInBackground(sendCode(user, 'reset_password'));
     }
     res.json({ message: 'If an account uses that email, we sent a code to it.', retryAfter: slot.retryAfter });
@@ -257,8 +272,14 @@ const verifyResetCode = async (req, res, next) => {
     const { email, code } = req.body;
 
     const user = await User.findOne({ email });
-    if (!user || user.isActive === false || !user.password || !(await checkCode(user._id, 'reset_password', code))) {
+    if (!user || !user.password || !(await checkCode(user._id, 'reset_password', code))) {
       return res.status(400).json(INVALID_CODE);
+    }
+    // The right code proves they own the inbox, so they may hear why (a
+    // code sent before an admin paused the account, say).
+    const refusal = refusalFor(user);
+    if (refusal) {
+      return res.status(refusal.status).json(refusal.body);
     }
 
     const resetTicket = signTicket(
@@ -282,14 +303,19 @@ const resetPassword = async (req, res, next) => {
 
     const ticket = verifyTicket(resetTicket, 'password_reset');
     const user = ticket ? await User.findById(ticket.sub) : null;
-    if (!user || user.isActive === false || !user.password || ticket.pw !== passwordFingerprint(user)) {
+    if (!user || !user.password || ticket.pw !== passwordFingerprint(user)) {
       return res.status(400).json(RESET_EXPIRED);
+    }
+    const refusal = refusalFor(user);
+    if (refusal) {
+      return res.status(refusal.status).json(refusal.body);
     }
 
     // The code proved they own the inbox, so the email counts as verified.
     if (!(await setPasswordVerified(user._id, password, { emailVerified: true }))) {
       return res.status(500).json(PASSWORD_NOT_CHANGED);
     }
+    recordUserActivity(req, { userId: user._id, type: 'password.reset' });
     res.json({ ok: true, verified: true, message: 'Your password is changed.' });
   } catch (error) {
     next(error);
@@ -299,20 +325,18 @@ const resetPassword = async (req, res, next) => {
 // Cancels a pending deletion and logs the user straight in. Takes the
 // email and password again rather than a token, because an account waiting
 // to be deleted is never handed a token (see login above). Accounts created
-// with Google restore through /google/restore instead.
+// with Google restore through /google/restore instead. Only the person's
+// own deletion can be cancelled here — an admin's is refused like at login,
+// and only an admin can undo it.
 const restore = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    const user = await findByCredentials(email, password);
-    if (!user) return res.status(401).json(INVALID_CREDENTIALS);
-
-    if (user.isActive === false) {
-      return res.status(403).json(DEACTIVATED);
-    }
-
-    if (!user.deletionScheduledFor) {
-      return res.status(400).json({ message: 'This account is not scheduled for deletion' });
+    const { user, who, why } = await checkCredentials(email, password);
+    if (!user) {
+      // Counted with failed logins: this checks the password the same way.
+      recordUserActivity(req, { userId: who, type: 'login.failed', method: 'password', reason: `${why} (restore)` });
+      return res.status(401).json(INVALID_CREDENTIALS);
     }
 
     if (isDeletionDue(user)) {
@@ -320,7 +344,18 @@ const restore = async (req, res, next) => {
       return res.status(401).json(INVALID_CREDENTIALS);
     }
 
-    await User.updateOne({ _id: user._id }, { $unset: { deletionScheduledFor: 1 } });
+    const refusal = refusalFor(user);
+    if (refusal) {
+      recordUserActivity(req, { userId: user._id, type: 'login.refused', method: 'password', reason: refusal.body.code });
+      return res.status(refusal.status).json(refusal.body);
+    }
+
+    if (!user.deletionScheduledFor) {
+      return res.status(400).json({ message: 'This account is not scheduled for deletion' });
+    }
+
+    await User.updateOne({ _id: user._id }, { $unset: { deletionScheduledFor: 1, deletionBy: 1 } });
+    recordUserActivity(req, { userId: user._id, type: 'deletion.cancelled', method: 'password' });
     res.json({ message: 'Account restored', token: signUserToken(user) });
   } catch (error) {
     next(error);
@@ -345,7 +380,7 @@ const getMe = async (req, res, next) => {
   try {
     // protect() already confirmed the account exists and is active.
     const user = await User.findById(req.user.userId).select(
-      'email name firstName lastName role password friendCode friendNote',
+      'email name firstName lastName role password friendCode friendNote termsVersion',
     );
     if (!user) return res.status(404).json({ message: 'Account not found' });
     user.friendCode = await ensureFriendCode(user);
@@ -359,6 +394,10 @@ const getMe = async (req, res, next) => {
         // code.
         hasPassword: typeof user.password === 'string',
       },
+      // The Terms changed since this account agreed (or it's from before we
+      // kept track): the app asks once, "We updated our Terms".
+      needsTerms: user.termsVersion !== TERMS_VERSION,
+      termsVersion: TERMS_VERSION,
       message: 'You are authenticated',
       // The app asks this each time it opens: a login in use keeps going.
       ...(shouldRenew(req.user) ? { token: signUserToken(user) } : {}),
@@ -430,6 +469,7 @@ const changePassword = async (req, res, next) => {
     if (!(await setPasswordVerified(user._id, newPassword))) {
       return res.status(500).json(PASSWORD_NOT_CHANGED);
     }
+    recordUserActivity(req, { userId: user._id, type: 'password.changed' });
     res.json({ ok: true, verified: true, token: signUserToken(user), message: 'Your password is changed.' });
   } catch (error) {
     next(error);
@@ -492,6 +532,7 @@ const changeEmail = async (req, res, next) => {
       return res.status(500).json({ message: "Your email wasn't changed. Please try again." });
     }
     console.log(`Email changed for user ${user._id}`);
+    recordUserActivity(req, { userId: user._id, type: 'email.changed' });
 
     sendMail({
       to: oldEmail,
@@ -548,9 +589,44 @@ const requestDeletion = async (req, res, next) => {
     }
 
     const deletionScheduledFor = new Date(Date.now() + DELETION_GRACE_DAYS * DAY_MS);
-    await User.updateOne({ _id: user._id }, { deletionScheduledFor });
+    await User.updateOne({ _id: user._id }, { deletionScheduledFor, deletionBy: 'user' });
+    recordUserActivity(req, { userId: user._id, type: 'deletion.requested' });
 
     res.json({ message: 'Account scheduled for deletion', deletionScheduledFor });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// "I agree" on the "We updated our Terms" screen. The app sends the version
+// it showed; an older one (the app wasn't updated yet) is refused, so
+// nobody is recorded agreeing to wording they never saw. Stamped by the
+// server's clock, like at sign-up.
+const acceptTerms = async (req, res, next) => {
+  try {
+    if (req.body.version !== TERMS_VERSION) {
+      return res.status(409).json({
+        code: 'TERMS_OUTDATED',
+        message: 'Please update AccessAI to read the latest Terms.',
+        termsVersion: TERMS_VERSION,
+      });
+    }
+    await User.updateOne({ _id: req.user.userId }, { termsAcceptedAt: new Date(), termsVersion: TERMS_VERSION });
+    res.json({ ok: true, termsVersion: TERMS_VERSION });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Signing out on purpose (not a 401). Recorded for the admins' activity
+// log; the phone's push address goes too, so it stops getting this
+// account's notifications. The token itself simply stops being used: it
+// can't be taken back, and the app forgets it.
+const logout = async (req, res, next) => {
+  try {
+    if (req.body?.deviceId) await removePushDevice(req.user.userId, req.body.deviceId);
+    recordUserActivity(req, { userId: req.user.userId, type: 'logout' });
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }
@@ -559,6 +635,8 @@ const requestDeletion = async (req, res, next) => {
 module.exports = {
   register,
   login,
+  logout,
+  acceptTerms,
   verifyEmail,
   resendVerification,
   forgotPassword,

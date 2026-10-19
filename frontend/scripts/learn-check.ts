@@ -2,28 +2,16 @@
 //   npx tsx scripts/learn-check.ts
 // The content uses only words the sign reader knows and has every sign's
 // steps and clip name; the locked levels keep the course's length; lessons
-// come out the same every time; the XP / level / streak / hearts maths (on a
-// fake clock) and the camera pass rule.
+// come out the same every time; unlocking lessons (Learn keeps no score —
+// HANDOFF.md §38) and the camera pass rule; every clip recorded and small.
 /// <reference types="node" />
 import './learn-check-assets';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { COURSES, LOCKED } from '../src/learn/content';
 import { allLessons, buildExercises, canDo, coursePath, findLesson, lessonPlan, type Abilities } from '../src/learn/lessons';
-import {
-  courseProgress,
-  earnedBadges,
-  fullHearts,
-  heartsNow,
-  HEART_EVERY_MS,
-  lessonXp,
-  levelOf,
-  loseHeart,
-  manilaDay,
-  streakOf,
-  xpForLevel,
-  xpOn,
-} from '../src/learn/progress';
+import * as progressModule from '../src/learn/progress';
+import { courseProgress } from '../src/learn/progress';
 import { normalizeLabel, signMatches } from '../src/learn/signMatch';
 import type { Completion, Course, Sign } from '../src/learn/types';
 
@@ -62,8 +50,15 @@ for (const course of COURSE_LIST) {
   check(`${name}: no step says the word (a quiz reads them out)`, naming.length === 0, naming.map((sign) => sign.label));
   const clips = signs.map((sign) => sign.clip);
   check(`${name}: clip names are unique, lowercase-with-hyphens`, new Set(clips).size === clips.length && clips.every((clip) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(clip)), clips);
-  const noFile = clips.filter((clip) => !existsSync(join(__dirname, '..', 'assets', 'signs', course, `${clip}.mp4`)));
-  check(`${name}: assets/signs/${course}/ has a file (or its placeholder) for every clip`, noFile.length === 0, noFile);
+  const clipPath = (clip: string) => join(__dirname, '..', 'assets', 'signs', course, `${clip}.mp4`);
+  const noFile = clips.filter((clip) => !existsSync(clipPath(clip)));
+  check(`${name}: assets/signs/${course}/ has a file for every clip`, noFile.length === 0, noFile);
+  // HANDOFF.md §30: recorded (not the 0-byte placeholder), and at most 10 MB.
+  const sizes = clips.filter((clip) => existsSync(clipPath(clip))).map((clip) => ({ clip, mb: statSync(clipPath(clip)).size / 1048576 }));
+  const notRecorded = sizes.filter((entry) => entry.mb * 1048576 <= 1024).map((entry) => entry.clip);
+  check(`${name}: every clip is recorded`, notRecorded.length === 0, notRecorded);
+  const tooBig = sizes.filter((entry) => entry.mb > 10).map((entry) => `${entry.clip} ${entry.mb.toFixed(1)} MB`);
+  check(`${name}: every clip is 10 MB or less`, tooBig.length === 0, tooBig);
 
   const real = allLessons(course).length;
   const locked = LOCKED[course].reduce((sum, unit) => sum + unit.levels.length, 0);
@@ -107,11 +102,12 @@ check('no clips, no camera: only the intro cards are left (they show the steps)'
 const told = buildExercises(lesson, { ...ALL, describe: true });
 check('told in words (screen reader or Blind profile): "what sign do these steps make" questions, nothing that needs seeing', told.some((e) => e.kind === 'watch-pick') && !told.some((e) => e.kind === 'read-pick' || e.kind === 'match'), told.map((e) => e.kind));
 check('told in words: every watch-pick question has steps to read', told.filter((e) => e.kind === 'watch-pick').every((e) => e.kind === 'watch-pick' && e.sign.steps.length > 0));
-// With clips (stand-ins here — not recorded yet).
+// With clips (stand-ins here), and one without.
 const withClip = (sign: Sign): Sign => ({ ...sign, video: 1 });
+const noClip = (sign: Sign): Sign => ({ ...sign, video: null });
 const [a, b, c] = lesson.signs.map(withClip);
 check('with clips: picking the video and matching work', canDo({ kind: 'read-pick', sign: a, options: [a, b, c] }, ALL) && canDo({ kind: 'match', pairs: [a, b, c] }, ALL));
-check('a missing clip: questions that need it are left out', !canDo({ kind: 'read-pick', sign: a, options: [a, b, lesson.signs[2]] }, ALL) && !canDo({ kind: 'watch-pick', sign: lesson.signs[0], options: [] }, ALL));
+check('a missing clip: questions that need it are left out', !canDo({ kind: 'read-pick', sign: a, options: [a, b, noClip(c)] }, ALL) && !canDo({ kind: 'watch-pick', sign: noClip(a), options: [] }, ALL));
 check('no camera: no "do the sign" exercises', !buildExercises(lesson, { ...ALL, camera: false }).some((e) => e.kind === 'do-sign'));
 
 console.log('\nthe camera pass rule');
@@ -121,59 +117,28 @@ check('ASL: within the top 3 passes', signMatches('asl', 'help', [{ label: 'want
 check('ASL: 4th does not', !signMatches('asl', 'help', [{ label: 'a' }, { label: 'b' }, { label: 'c' }, { label: 'help' }]));
 check("curly vs straight apostrophes and case don't matter", signMatches('fsl', 'DON’T KNOW', [{ label: "don't  know" }]) && normalizeLabel(' im fine ') === 'IM FINE');
 
-console.log('\nXP, levels, streaks, the daily goal');
-check('lesson 10 XP, perfect +5, each camera sign +3', lessonXp('lesson', { mistakes: 0, quizQuestions: 6, cameraPassed: 2 }) === 21);
-check('a review is 5 XP; no quiz → no perfect bonus', lessonXp('review', { mistakes: 0, quizQuestions: 0, cameraPassed: 0 }) === 5);
-check('a mistake loses the perfect bonus', lessonXp('lesson', { mistakes: 1, quizQuestions: 6, cameraPassed: 0 }) === 10);
-check('never more than 30 XP', lessonXp('lesson', { mistakes: 0, quizQuestions: 6, cameraPassed: 10 }) === 30);
-check('levels at 50, 150, 500 and 2250 XP', xpForLevel(2) === 50 && xpForLevel(3) === 150 && xpForLevel(5) === 500 && xpForLevel(10) === 2250);
-check('49 XP is level 1, 50 is level 2 (0 into it, 100 to go)', levelOf(49).level === 1 && JSON.stringify(levelOf(50)) === JSON.stringify({ level: 2, intoLevel: 0, levelSize: 100 }));
-
-// Monday 12 Oct 2026, 10:00 in Manila.
+console.log('\nunlocks — no score kept');
 const NOW = Date.UTC(2026, 9, 12, 2, 0);
-const DAY = 86400000;
-const done = (daysAgo: number, xp = 10, extra: Partial<Completion> = {}): Completion => ({
-  clientId: `c${daysAgo}-${xp}-${Math.random()}`,
+const done = (lessonId: string, extra: Partial<Completion> = {}): Completion => ({
+  clientId: `${lessonId}-${Math.random()}`,
   course: 'fsl',
-  lessonId: 'fsl-first-signs-1',
-  xp,
+  lessonId,
   mistakes: 0,
   cameraPassed: 0,
-  completedAt: NOW - daysAgo * DAY,
+  completedAt: NOW,
   ...extra,
 });
-check('Manila days: 11:59 pm and 12:01 am are different days', manilaDay(Date.UTC(2026, 9, 11, 15, 59)) + 1 === manilaDay(Date.UTC(2026, 9, 11, 16, 1)));
-let s = streakOf([done(0), done(1), done(2), done(4)], NOW);
-check('3 days in a row up to today → streak 3 (best 3)', s.current === 3 && s.best === 3 && s.doneToday, s);
-s = streakOf([done(1), done(2)], NOW);
-check("nothing yet today: yesterday's streak still counts", s.current === 2 && !s.doneToday, s);
-s = streakOf([done(2), done(3)], NOW);
-check('a whole day missed: the streak is 0', s.current === 0 && s.best === 2, s);
-check("today's XP for the daily goal", xpOn([done(0, 15), done(0, 10), done(1, 30)], manilaDay(NOW)) === 25);
-
-console.log('\nhearts');
-let hearts = fullHearts(NOW);
-hearts = loseHeart(hearts, NOW);
-check('a wrong answer: 5 → 4, and the 30-minute clock starts', hearts.count === 4 && heartsNow(hearts, NOW).nextInMs === HEART_EVERY_MS);
-hearts = loseHeart(loseHeart(loseHeart(loseHeart(hearts, NOW), NOW), NOW), NOW);
-check('down to 0, and never below', hearts.count === 0 && loseHeart(hearts, NOW).count === 0);
-check('one back after 30 minutes', heartsNow(hearts, NOW + HEART_EVERY_MS).hearts.count === 1);
-check('all 5 back after 2.5 hours, and no more', heartsNow(hearts, NOW + 10 * HEART_EVERY_MS).hearts.count === 5 && heartsNow(hearts, NOW + 10 * HEART_EVERY_MS).nextInMs === null);
-const partly = heartsNow(hearts, NOW + HEART_EVERY_MS + 60000);
-check('the clock carries over (next heart 29 min after the last one came)', partly.nextInMs === HEART_EVERY_MS - 60000, partly);
-
-console.log('\nunlocks and badges');
 let progress = courseProgress('fsl', []);
 check('new learner: the first lesson is open, the second locked', progress.states.get('fsl-first-signs-1') === 'open' && progress.states.get('fsl-first-signs-2') === 'locked' && progress.next === 'fsl-first-signs-1');
-progress = courseProgress('fsl', [done(0, 10, { lessonId: 'fsl-first-signs-1' })]);
-check('finishing a lesson opens the next', progress.states.get('fsl-first-signs-2') === 'open' && progress.next === 'fsl-first-signs-2' && progress.xp === 10);
-check('the other course keeps its own progress', courseProgress('asl', [done(0)]).lessonsDone === 0);
-const firstUnit = coursePath('fsl')[0].lessons.map((l, i) => done(0, 10, { lessonId: l.id, clientId: `g${i}` }));
+progress = courseProgress('fsl', [done('fsl-first-signs-1')]);
+check('finishing a lesson opens the next', progress.states.get('fsl-first-signs-2') === 'open' && progress.next === 'fsl-first-signs-2');
+check('mistakes never hold a lesson back', courseProgress('fsl', [done('fsl-first-signs-1', { mistakes: 9 })]).next === 'fsl-first-signs-2');
+check('a lesson finished before 2026-10-17 (with XP) still counts', courseProgress('fsl', [done('fsl-first-signs-1', { xp: 25 })]).lessonsDone === 1);
+check('the other course keeps its own progress', courseProgress('asl', [done('fsl-first-signs-1')]).lessonsDone === 0);
+const firstUnit = coursePath('fsl')[0].lessons.map((l) => done(l.id));
 check('all real levels done: nothing left to open (the locked ones stay locked)', courseProgress('fsl', firstUnit).next === null);
-let badges = earnedBadges([...firstUnit, done(1), done(2, 21, { cameraPassed: 2, mistakes: 0 })], NOW);
-check('badges: first lesson, a unit done, 3 days in a row, first camera sign, perfect', ['first-lesson', 'unit', 'streak-3', 'first-camera', 'perfect'].every((b) => badges.has(b as never)), [...badges]);
-badges = earnedBadges([done(0, 10, { mistakes: 0 })], NOW);
-check('"perfect" needs quiz questions answered (no bonus XP → no badge)', !badges.has('perfect'));
+const gone = ['lessonXp', 'levelOf', 'streakOf', 'heartsNow', 'loseHeart', 'BADGES', 'earnedBadges'].filter((name) => name in progressModule);
+check('no XP, levels, streaks, hearts or badges left in Learn', gone.length === 0, gone);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

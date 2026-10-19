@@ -11,8 +11,8 @@ import { formatDateTime, ROLE_LABELS } from '../utils/format';
 import { EMAIL_REGEX, generateTemporaryPassword, isStrongPassword } from '../utils/validation';
 
 const ROLE_DESCRIPTIONS: Record<AdminRole, string> = {
-  admin: 'Can view users and deactivate or reactivate their accounts.',
-  super_admin: 'Everything an admin can do, plus managing other admins.',
+  admin: 'Can view users, their activity and SOS records, and suspend accounts.',
+  super_admin: 'Everything an admin can do, plus deleting accounts in 30 days and managing other admins.',
 };
 
 type PendingChange = { target: Admin; role?: AdminRole; isActive?: boolean };

@@ -2,12 +2,14 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { normalize } from '@/accel/language';
-import { useAccelScreen } from '@/accel/screenContext';
+import { normalize } from '@/laya/language';
+import { inLang, P } from '@/laya/phrases';
+import { useLayaScreen } from '@/laya/screenContext';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { RenameConversationModal } from '@/components/conversation/RenameConversationModal';
 import { IconButton } from '@/components/ui/IconButton';
 import { ScreenShell } from '@/components/ui/ScreenShell';
+import { TabHeader } from '@/components/ui/TabHeader';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import {
   deleteConversation,
@@ -19,7 +21,7 @@ import {
 import { syncConversations } from '@/db/sync';
 import { keepIfSame } from '@/utils/cache';
 import { openSavedConversation, startNewConversation } from '@/utils/conversationNav';
-import { whenText } from '@/utils/dates';
+import { whenTextIn } from '@/utils/dates';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 
 function formatTimestamp(ms: number): string {
@@ -93,7 +95,7 @@ export default function HistoryScreen() {
     void syncConversations();
   };
 
-  // ---- Accel: "open Ate Lyka", "read the newest one".
+  // ---- Laya: "open Ate Lyka", "read the newest one".
   const findByName = (name: string | undefined): Conversation | null => {
     const said = name ? normalize(name) : '';
     if (!said || !conversations) return null;
@@ -103,39 +105,44 @@ export default function HistoryScreen() {
       null
     );
   };
-  useAccelScreen({
+  useLayaScreen({
     name: 'Chats',
-    describe: () => {
-      if (!conversations) return 'Your conversations are loading.';
-      if (!conversations.length) return 'You have no saved conversations yet. Say "start a conversation" to begin one.';
+    describe: (lang) => {
+      if (!conversations) return inLang(lang, P.chatsLoading);
+      if (!conversations.length) return inLang(lang, P.chatsNone);
       const newest = conversations
         .slice(0, 3)
-        .map((c) => `${c.title}, ${whenText(c.updatedAt)}`)
+        .map((c) => `${c.title}, ${whenTextIn(lang, c.updatedAt)}`)
         .join('; ');
-      return `${conversations.length === 1 ? '1 saved conversation' : `${conversations.length} saved conversations`}. The newest: ${newest}.`;
+      return inLang(lang, P.chatsList(conversations.length, newest));
     },
-    examples: [`open ${conversations?.[0]?.title ?? 'Ate Lyka'}`, 'read the newest one', 'start a conversation'],
+    examples: (lang) => {
+      const title = conversations?.[0]?.title ?? 'Ate Lyka';
+      return lang === 'fil'
+        ? [`buksan ang ${title}`, 'basahin ang pinakabago', 'magsimula ng usapan']
+        : [`open ${title}`, 'read the newest one', 'start a conversation'];
+    },
     accepts: (intent, slots) => intent !== 'chats.open' || findByName(slots.friendName) !== null,
     commands: {
-      'chats.open': (slots) => {
+      'chats.open': (slots, lang) => {
         const found = findByName(slots.friendName);
-        if (!found) return { kind: 'say', text: `I couldn't find a conversation called ${slots.friendName ?? 'that'}.` };
+        if (!found) return { kind: 'say', text: inLang(lang, P.noConversationCalled(slots.friendName ?? inLang(lang, P.that))) };
         return {
           kind: 'confirm',
-          question: `Open ${found.title}?`,
-          run: async () => ({ say: `Opening ${found.title}.`, after: () => openSavedConversation(found.id) }),
+          question: inLang(lang, P.openQuestion(found.title)),
+          run: async () => ({ say: inLang(lang, P.opening(found.title)), after: () => openSavedConversation(found.id) }),
         };
       },
-      'chats.read_newest': () => ({
+      'chats.read_newest': (_slots, lang) => ({
         kind: 'do',
         run: async () => {
           const newest = conversations?.[0];
-          if (!newest) return { say: 'You have no saved conversations yet.' };
+          if (!newest) return { say: inLang(lang, P.noSavedConversations) };
           const lines = (await getMessages(newest.id))
             .slice(-3)
-            .map((m) => `${m.sender === 'me' ? 'You' : 'They'} said: ${m.body}`)
+            .map((m) => inLang(lang, P.convLine(m.sender === 'me', m.body)))
             .join('. ');
-          return { say: `${newest.title}, ${whenText(newest.updatedAt)}. ${lines || 'No messages.'}` };
+          return { say: `${newest.title}, ${whenTextIn(lang, newest.updatedAt)}. ${lines || inLang(lang, P.noMessages)}` };
         },
       }),
     },
@@ -144,21 +151,21 @@ export default function HistoryScreen() {
   return (
     <ScreenShell maxWidth={MaxContentWidth.app}>
       <View style={styles.header}>
-        <View style={styles.headerText}>
-          <Text style={styles.title} accessibilityRole="header">
-            Chats
-          </Text>
-          <Text style={styles.subtitle}>Your past conversations.</Text>
-        </View>
-        <Pressable
-          style={styles.newButton}
-          onPress={startNewConversation}
-          accessibilityRole="button"
-          accessibilityLabel="New conversation"
-        >
-          <Ionicons name="add" size={20} color={colors.onPrimary} />
-          <Text style={styles.newButtonText}>New</Text>
-        </Pressable>
+        <TabHeader
+          title="Chats"
+          right={
+            <Pressable
+              style={styles.newButton}
+              onPress={startNewConversation}
+              accessibilityRole="button"
+              accessibilityLabel="New conversation"
+            >
+              <Ionicons name="add" size={20} color={colors.onPrimary} />
+              <Text style={styles.newButtonText}>New</Text>
+            </Pressable>
+          }
+        />
+        <Text style={styles.subtitle}>Your past conversations.</Text>
       </View>
 
       {conversations === null ? (
@@ -252,15 +259,9 @@ export default function HistoryScreen() {
 const makeStyles = (t: AppTheme) =>
   StyleSheet.create({
     header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.three,
       paddingHorizontal: Spacing.four,
       paddingTop: Spacing.three,
       paddingBottom: Spacing.two,
-    },
-    headerText: {
-      flex: 1,
     },
     newButton: {
       flexDirection: 'row',
@@ -281,13 +282,8 @@ const makeStyles = (t: AppTheme) =>
       alignSelf: 'stretch',
       paddingHorizontal: Spacing.five,
     },
-    title: {
-      fontSize: t.font(22),
-      fontWeight: t.weight('800'),
-      color: t.colors.textPrimary,
-    },
     subtitle: {
-      marginTop: 6,
+      marginTop: 2,
       fontSize: t.font(13),
       color: t.colors.textSecondary,
     },

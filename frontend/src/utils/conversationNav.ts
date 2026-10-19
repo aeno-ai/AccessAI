@@ -10,7 +10,7 @@ export function startNewConversation() {
   router.push({ pathname: '/conversation', params: { new: String(Date.now()) } } as unknown as Href);
 }
 
-/** Opens Conversation on a fresh conversation already named `title` (Accel: "start a conversation called Ate Lyka"). */
+/** Opens Conversation on a fresh conversation already named `title` (Laya: "start a conversation called Ate Lyka"). */
 export function startNamedConversation(title: string) {
   router.push({ pathname: '/conversation', params: { new: String(Date.now()), title } } as unknown as Href);
 }

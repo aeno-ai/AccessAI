@@ -8,8 +8,30 @@ const User = require('../../src/models/Users');
 const EmailCode = require('../../src/models/EmailCode');
 const CodeRequest = require('../../src/models/CodeRequest');
 const { keyOf } = require('../../src/utils/codeGate');
+const UserActivity = require('../../src/models/UserActivity');
+const AdminAuditLog = require('../../src/models/AdminAuditLog');
+const { TERMS_VERSION } = require('../../src/constants/legal');
+const { purgeUser, purgeExpiredAccounts } = require('../../src/utils/accountDeletion');
 const bcrypt = require('bcrypt');
 const h = require('./helpers');
+
+// The activity log is written without waiting (utils/activityLog.js).
+async function activityOf(userId, wait = 400) {
+  await h.sleep(wait);
+  return UserActivity.find({ userId }).sort({ createdAt: 1 }).lean();
+}
+
+// Every key anywhere in a JSON answer, for "never sends X" checks.
+function allKeys(value, keys = new Set()) {
+  if (Array.isArray(value)) value.forEach((item) => allKeys(item, keys));
+  else if (value && typeof value === 'object') {
+    for (const [key, inner] of Object.entries(value)) {
+      keys.add(key);
+      allKeys(inner, keys);
+    }
+  }
+  return keys;
+}
 
 const GENERIC = "Something's not right with that request. Please try again.";
 
@@ -225,6 +247,19 @@ async function pushSuite() {
   const aTokens = (await User.findById(a.id).select('+pushTokens')).pushTokens ?? [];
   h.check('the same phone signing into another account leaves the first', r.status === 200 && aTokens.length === 0, aTokens);
 
+  // The same phone saving again, and many saves arriving at once (the app
+  // used to loop), always leave exactly one entry for that phone.
+  const c = await h.makeUser('Rho');
+  const cToken = 'ExponentPushToken[e2eFakeToken0987654321]';
+  const save = () => h.api('PUT', '/push/token', c.token, { token: cToken, deviceId: 'device-cccc-3333', platform: 'android' });
+  await save();
+  await save();
+  let cTokens = (await User.findById(c.id).select('+pushTokens')).pushTokens ?? [];
+  h.check('saving the same token twice keeps one entry', cTokens.length === 1, cTokens);
+  const together = await Promise.all([save(), save(), save(), save(), save()]);
+  cTokens = (await User.findById(c.id).select('+pushTokens')).pushTokens ?? [];
+  h.check('5 saves at once still keep one entry', together.every((x) => x.status === 200) && cTokens.length === 1, cTokens);
+
   // b's token is fake: Expo answers DeviceNotRegistered and it's dropped.
   await h.befriend(a, b, { aAddsBToSos: true });
   r = await h.api('POST', '/sos/trigger', a.token, { triggerMethod: 'test', isTest: true });
@@ -240,11 +275,11 @@ async function pushSuite() {
 }
 
 async function aiSuite() {
-  console.log('\nai — Accel and sign language through the backend');
+  console.log('\nai — Laya and sign language through the backend');
   const a = await h.makeUser('Ria');
   let r = await h.api('POST', '/assistant/interpret', a.token, { text: 'take me to conversation mode' });
   if (r.status === 503) {
-    h.check('AI service down → friendly 503 the app can fall back on', r.data.code === 'ACCEL_OFFLINE', r);
+    h.check('AI service down → friendly 503 the app can fall back on', r.data.code === 'LAYA_OFFLINE', r);
     console.log('  (AI service not running — start it with `npm run dev` + `ollama serve` to check the rest)');
     return;
   }
@@ -477,6 +512,202 @@ async function authSuite() {
   } finally {
     await CodeRequest.deleteMany({ key: { $in: gateKeys } });
   }
+
+  console.log('\nauth — activity records, logout, updated Terms (HANDOFF §41, §44)');
+  const tia = await h.makeUser('Tia');
+  await User.updateOne({ _id: tia.id }, { password: await bcrypt.hash('TiaPass123', 10) });
+  const { email: tiaEmail } = await User.findById(tia.id).select('email').lean();
+  const phone = { 'X-App-Platform': 'android', 'X-App-Version': '1.1.0', ...h.runAddress };
+  r = await h.api('POST', '/auth/login', null, { email: tiaEmail, password: 'Wrong1234' }, phone);
+  h.check('wrong password → 401', r.status === 401, r);
+  r = await h.api('POST', '/auth/login', null, { email: tiaEmail, password: 'TiaPass123' }, phone);
+  h.check('right password → 200', r.status === 200 && typeof r.data.token === 'string', r);
+  const tiaLogin = r.data.token;
+  let records = await activityOf(tia.id);
+  const failedRecord = records.find((a) => a.type === 'login.failed');
+  h.check('the failed login is recorded, with the reason', failedRecord?.reason === 'wrong password' && failedRecord?.method === 'password', records);
+  h.check('…with the phone type, app version and address', failedRecord?.platform === 'android' && failedRecord?.appVersion === '1.1.0' && Boolean(failedRecord?.ip), failedRecord);
+  h.check('the login is recorded', records.some((a) => a.type === 'login.success' && a.method === 'password'), records.map((a) => a.type));
+  r = await h.api('GET', '/auth/me', tiaLogin, undefined, { 'X-App-Platform': 'nokia', 'X-App-Version': '<script>' });
+  h.check('a strange phone type or version is simply not kept', r.status === 200, r);
+
+  await User.updateOne({ _id: tia.id }, { pushTokens: [{ token: 'ExponentPushToken[tiatiatiatia]', deviceId: 'tia-phone-1', platform: 'android', updatedAt: new Date() }] });
+  r = await h.api('POST', '/auth/logout', tiaLogin, { deviceId: 'bad id!' });
+  h.check('logout with a malformed phone id → 400', r.status === 400, r);
+  r = await h.api('POST', '/auth/logout', tiaLogin, { deviceId: 'tia-phone-1' });
+  h.check('logout → 200', r.status === 200 && r.data.ok === true, r);
+  const tokensLeft = (await User.findById(tia.id).select('+pushTokens').lean()).pushTokens ?? [];
+  h.check("…and this phone's push address is gone", tokensLeft.length === 0, tokensLeft);
+  records = await activityOf(tia.id);
+  h.check('…and the logout is recorded', records.some((a) => a.type === 'logout'), records.map((a) => a.type));
+  r = await h.api('POST', '/auth/logout', tiaLogin, {});
+  h.check('logout without a phone id works too', r.status === 200, r);
+
+  r = await h.api('GET', '/auth/me', tiaLogin);
+  h.check('an account that never agreed to these Terms: needsTerms', r.status === 200 && r.data.needsTerms === true && r.data.termsVersion === TERMS_VERSION, r.data);
+  r = await h.api('POST', '/auth/terms', tiaLogin, { version: '2020-01-01' });
+  h.check('agreeing to an older version → 409 TERMS_OUTDATED', r.status === 409 && r.data.code === 'TERMS_OUTDATED', r);
+  r = await h.api('POST', '/auth/terms', tiaLogin, { version: 20261017 });
+  h.check('a version that isn\'t a date string → 400', r.status === 400, r);
+  r = await h.api('POST', '/auth/terms', tiaLogin, { version: TERMS_VERSION });
+  h.check('"I agree" → 200', r.status === 200 && r.data.ok === true, r);
+  r = await h.api('GET', '/auth/me', tiaLogin);
+  const agreed = await User.findById(tia.id).select('termsVersion termsAcceptedAt').lean();
+  h.check('…then needsTerms is false, and the date is saved', r.data.needsTerms === false && agreed.termsVersion === TERMS_VERSION && agreed.termsAcceptedAt > new Date(Date.now() - 60000), { me: r.data.needsTerms, agreed });
+  r = await h.api('DELETE', '/auth/me', tiaLogin, { password: 'TiaPass123' }, h.runAddress);
+  h.check('asking to delete my account → 200', r.status === 200, r);
+  r = await h.api('POST', '/auth/login', null, { email: tiaEmail, password: 'TiaPass123' }, h.runAddress);
+  h.check('…login offers to keep it (ACCOUNT_PENDING_DELETION)', r.status === 403 && r.data.code === 'ACCOUNT_PENDING_DELETION', r);
+  r = await h.api('POST', '/auth/restore', null, { email: tiaEmail, password: 'TiaPass123' }, h.runAddress);
+  h.check('"Keep my account" → 200 with a login', r.status === 200 && typeof r.data.token === 'string', r);
+  records = await activityOf(tia.id);
+  h.check('the deletion request and its cancelling are recorded', records.some((a) => a.type === 'deletion.requested') && records.some((a) => a.type === 'deletion.cancelled'), records.map((a) => a.type));
+  const restored = await User.findById(tia.id).select('deletionScheduledFor deletionBy').lean();
+  h.check('…and nothing about the deletion is left on the account', !restored.deletionScheduledFor && !restored.deletionBy, restored);
+
+  const gone = await h.makeUser('Gone');
+  await UserActivity.create({ userId: gone.id, type: 'login.success' });
+  await purgeUser(gone.id);
+  h.check("erasing an account erases its activity records", (await UserActivity.countDocuments({ userId: gone.id })) === 0);
+}
+
+async function adminSuite() {
+  console.log('\nadmin — suspend and lift, delete in 30 days, SOS and activity records, "Needs a look" (HANDOFF §41–§43)');
+  const boss = await h.makeAdmin('super_admin');
+  const helper = await h.makeAdmin('admin');
+  const pia = await h.makeUser('Pia');
+  const fred = await h.makeUser('Fred', 'non_pwd');
+  await h.befriend(pia, fred, { aAddsBToSos: true });
+  await User.updateOne({ _id: pia.id }, { password: await bcrypt.hash('PiaPass123', 10) });
+  const { email: piaEmail } = await User.findById(pia.id).select('email').lean();
+  const piaLogin = { email: piaEmail, password: 'PiaPass123' };
+
+  let r = await h.adminApi('GET', '/activity', null);
+  h.check('not logged in to the admin panel → 401', r.status === 401, r);
+  r = await h.api('GET', '/admin/activity', pia.token);
+  h.check('an app login does not open the admin panel', r.status === 401, r);
+  r = await h.adminApi('POST', `/users/${pia.id}/deletion`, helper, { reason: 'Spam' });
+  h.check('an admin (not super admin) cannot delete in 30 days → 403', r.status === 403, r);
+  r = await h.adminApi('POST', `/users/${pia.id}/suspend`, helper, { days: 3, reason: 'Spam' });
+  h.check('suspend for 3 days → 400 (1, 7 or 30 only)', r.status === 400, r);
+  r = await h.adminApi('POST', `/users/${pia.id}/suspend`, helper, { days: 7, reason: '   ' });
+  h.check('suspend with no reason → 400', r.status === 400, r);
+  r = await h.adminApi('PATCH', `/users/${pia.id}/status`, helper, { isActive: false });
+  h.check('the old "deactivate" is gone → 400', r.status === 400, r);
+
+  const [piaSocket, fredSocket] = await Promise.all([h.openSocket(pia), h.openSocket(fred)]);
+  r = await h.adminApi('POST', `/users/${pia.id}/suspend`, helper, { days: 7, reason: 'Sending spam' });
+  const until = r.data.user?.suspendedUntil ? new Date(r.data.user.suspendedUntil).getTime() : 0;
+  h.check('an admin suspends for 7 days → 200, status suspended', r.status === 200 && r.data.user?.status === 'suspended', r);
+  h.check('…until 7 days from now, with the reason', Math.abs(until - (Date.now() + 7 * 86400000)) < 60000 && r.data.user.suspendedReason === 'Sending spam', r.data.user);
+  await h.sleep(300);
+  h.check('…their live connection is closed', piaSocket.connected === false);
+  h.check("…and their friend's lists reload", Boolean(await h.waitFor(fredSocket, 'friends:changed')));
+  r = await h.api('GET', '/auth/me', pia.token);
+  h.check('their next request → 401 ACCOUNT_SUSPENDED, with the date and reason', r.status === 401 && r.data.code === 'ACCOUNT_SUSPENDED' && /Sending spam/.test(r.data.message), r);
+  let refused = false;
+  try {
+    await h.openSocket(pia);
+  } catch {
+    refused = true;
+  }
+  h.check('…and reconnecting is refused', refused);
+  r = await h.api('GET', '/friends', fred.token);
+  h.check('their friend no longer sees them', r.status === 200 && !(Array.isArray(r.data) ? r.data : []).some((f) => f.userId === pia.id), r.data);
+  r = await h.api('POST', '/auth/login', null, piaLogin, h.runAddress);
+  h.check('logging in → 403 ACCOUNT_SUSPENDED', r.status === 403 && r.data.code === 'ACCOUNT_SUSPENDED', r);
+  let records = await activityOf(pia.id);
+  h.check('…recorded as a refused login', records.some((a) => a.type === 'login.refused' && a.reason === 'ACCOUNT_SUSPENDED'), records.map((a) => `${a.type}:${a.reason}`));
+  r = await h.adminApi('GET', `/users?status=suspended&search=${encodeURIComponent(piaEmail)}`, helper);
+  h.check('the user list can show only suspended accounts', r.status === 200 && r.data.users?.length === 1 && r.data.users[0].id === pia.id, r.data);
+
+  r = await h.adminApi('DELETE', `/users/${pia.id}/suspend`, helper);
+  h.check('lift the suspension → 200, active', r.status === 200 && r.data.user?.status === 'active' && r.data.user.suspendedUntil === null, r);
+  r = await h.api('GET', '/auth/me', pia.token);
+  h.check('…their login works again', r.status === 200, r);
+  r = await h.api('GET', '/friends', fred.token);
+  h.check('…and their friend sees them again', (Array.isArray(r.data) ? r.data : []).some((f) => f.userId === pia.id), r.data);
+
+  r = await h.adminApi('POST', `/users/${pia.id}/deletion`, boss, { reason: 'Fake SOS alerts' });
+  const on = r.data.user?.deletionScheduledFor ? new Date(r.data.user.deletionScheduledFor).getTime() : 0;
+  h.check('a super admin: delete in 30 days → 200, being deleted by an admin', r.status === 200 && r.data.user?.status === 'deleting' && r.data.user.deletionBy === 'admin', r);
+  h.check('…on the date 30 days from now', Math.abs(on - (Date.now() + 30 * 86400000)) < 60000, r.data.user);
+  r = await h.api('GET', '/auth/me', pia.token);
+  h.check('their next request → 401 ACCOUNT_DELETION_BY_ADMIN', r.status === 401 && r.data.code === 'ACCOUNT_DELETION_BY_ADMIN', r);
+  r = await h.api('POST', '/auth/login', null, piaLogin, h.runAddress);
+  h.check('logging in → 403 ACCOUNT_DELETION_BY_ADMIN, with no way to keep it', r.status === 403 && r.data.code === 'ACCOUNT_DELETION_BY_ADMIN' && r.data.restoreTicket === undefined, r);
+  r = await h.api('POST', '/auth/restore', null, piaLogin, h.runAddress);
+  h.check('"Keep my account" is refused too', r.status === 403 && r.data.code === 'ACCOUNT_DELETION_BY_ADMIN', r);
+  r = await h.adminApi('DELETE', `/users/${pia.id}/deletion`, helper);
+  h.check('an admin (not super admin) cannot cancel it → 403', r.status === 403, r);
+  r = await h.adminApi('DELETE', `/users/${pia.id}/deletion`, boss);
+  h.check('a super admin cancels it → 200, active', r.status === 200 && r.data.user?.status === 'active' && r.data.user.deletionScheduledFor === null, r);
+  r = await h.api('POST', '/auth/login', null, piaLogin, h.runAddress);
+  h.check('…and they can log in again', r.status === 200 && typeof r.data.token === 'string', r);
+
+  console.log('\nadmin — SOS records never carry the place, location or message');
+  r = await h.api('POST', '/sos/trigger', pia.token, {
+    triggerMethod: 'app-hold-confirm',
+    message: 'Help me please',
+    location: { latitude: 14.5995, longitude: 120.9842, accuracy: 20 },
+    place: 'Near Rizal Ave, Manila',
+  });
+  const realId = r.data.eventId;
+  await h.api('POST', `/sos/${realId}/respond`, fred.token, { kind: 'seen' });
+  await h.api('PATCH', `/sos/${realId}/resolve`, pia.token);
+  r = await h.api('POST', '/sos/trigger', pia.token, { triggerMethod: 'app-hold-confirm', isTest: true, place: 'Somewhere' });
+  const testId = r.data.eventId;
+  r = await h.adminApi('GET', '/sos', helper);
+  const keys = allKeys(r.data);
+  h.check('GET /admin/sos → 200', r.status === 200 && Array.isArray(r.data.events), r);
+  h.check('…never has location, lastLocation, place or message, anywhere', !['location', 'lastLocation', 'place', 'message', 'latitude', 'longitude'].some((key) => keys.has(key)), [...keys]);
+  const real = r.data.events?.find((e) => e.id === realId);
+  h.check('…shows who answered, by name, and that it was marked safe', real?.answers?.[0]?.name === 'Fred Test' && real.answers[0].kind === 'seen' && real.ended === 'safe' && real.alerted === 1 && real.isTest === false, real);
+  const test = r.data.events?.find((e) => e.id === testId);
+  h.check('…and the test one no one answered', test?.isTest === true && test.noOneAnswered === true, test);
+  r = await h.adminApi('GET', '/sos?unanswered=true', helper);
+  h.check('"only ones no one answered" leaves out the answered one', r.status === 200 && !r.data.events.some((e) => e.id === realId) && r.data.events.some((e) => e.id === testId), r.data.events?.map((e) => e.id));
+  r = await h.adminApi('GET', `/users/${pia.id}/sos`, helper);
+  h.check("one person's SOS: 1 real, 1 test", r.status === 200 && r.data.counts?.real === 1 && r.data.counts?.test === 1 && r.data.events.length === 2, r.data);
+  h.check('…also never with the place, location or message', !['location', 'lastLocation', 'place', 'message'].some((key) => allKeys(r.data).has(key)));
+  r = await h.adminApi('GET', `/users/${pia.id}/activity`, helper);
+  h.check("one person's activity → their records, newest first", r.status === 200 && r.data.records?.[0]?.type === 'login.success' && r.data.records.some((a) => a.type === 'login.refused'), r.data.records?.map((a) => a.type));
+  r = await h.adminApi('GET', '/activity?type=nonsense', helper);
+  h.check('an unknown activity type → 400', r.status === 400, r);
+  await h.sleep(200);
+  const views = await AdminAuditLog.find({ adminId: helper.id, targetId: pia.id, action: { $in: ['user.sos.view', 'user.activity.view'] } }).lean();
+  h.check("an admin opening someone's SOS and activity is itself recorded", views.length === 2, views.map((v) => v.action));
+  const changes = await AdminAuditLog.find({ targetId: pia.id, action: { $in: ['user.suspend', 'user.suspend.lift', 'user.delete.schedule', 'user.delete.cancel'] } }).lean();
+  h.check('every suspend, lift, delete and cancel is in the admin log', changes.length === 4, changes.map((c) => c.action));
+
+  console.log('\nadmin — "Needs a look"');
+  const rex = await h.makeUser('Rex');
+  const ned = await h.makeUser('Ned');
+  await UserActivity.deleteMany({ ip: '203.0.113.9' });
+  await UserActivity.insertMany([
+    ...Array.from({ length: 10 }, () => ({ userId: rex.id, type: 'login.failed', reason: 'wrong password', ip: '203.0.113.9' })),
+    ...Array.from({ length: 9 }, () => ({ userId: ned.id, type: 'login.failed', reason: 'wrong password', ip: '203.0.113.9' })),
+  ]);
+  r = await h.adminApi('GET', '/review', helper);
+  const rexItem = r.data.items?.find((item) => item.user?.id === rex.id);
+  h.check('10 failed logins in a day → the account needs a look', r.status === 200 && rexItem?.signs.some((s) => s.sign === 'failed_logins' && s.count === 10), r.data.items);
+  h.check('…9 does not', !r.data.items?.some((item) => item.user?.id === ned.id));
+  h.check('…and 19 from one address does not flag the address yet', !r.data.items?.some((item) => item.ip === '203.0.113.9'));
+  await UserActivity.create({ type: 'login.failed', reason: 'no account with that email', ip: '203.0.113.9' });
+  r = await h.adminApi('GET', '/review', helper);
+  h.check('20 from one address flags the address', r.data.items?.some((item) => item.ip === '203.0.113.9' && item.signs[0].count === 20), r.data.items);
+  await UserActivity.deleteMany({ ip: '203.0.113.9' });
+
+  console.log('\nadmin — an admin deletion is erased when its day comes');
+  r = await h.adminApi('POST', `/users/${pia.id}/deletion`, boss, { reason: 'Fake SOS alerts' });
+  h.check('delete in 30 days again → 200', r.status === 200, r);
+  await User.updateOne({ _id: pia.id }, { deletionScheduledFor: new Date(Date.now() - 1000) });
+  await purgeExpiredAccounts();
+  h.check('when the date passes, the account and its records are erased', !(await User.exists({ _id: pia.id })) && (await UserActivity.countDocuments({ userId: pia.id })) === 0);
+  const own = await h.makeUser('Owen');
+  await User.updateOne({ _id: own.id }, { deletionScheduledFor: new Date(Date.now() + 86400000), deletionBy: 'user' });
+  r = await h.adminApi('DELETE', `/users/${own.id}/deletion`, boss);
+  h.check("a deletion the person asked for isn't an admin's to cancel → 400", r.status === 400 && /Only they can cancel/.test(r.data.message), r);
 }
 
 async function scaleSuite() {
@@ -550,11 +781,19 @@ async function learnSuite() {
 
   await h.api('POST', '/learn/sync', max.token, { completions: [done('m1', 'asl-basics-1', 25)] });
   await h.api('POST', '/learn/sync', stranger.token, { completions: [done('s1', 'asl-basics-1', 30)] });
-  // Last week's XP doesn't count this week.
+  // Last week's lessons don't count this week.
   await h.api('POST', '/learn/sync', lea.token, { completions: [done('old', 'fsl-greetings-3', 30, { completedAt: now - 8 * 86400000 })] });
+  // Learn keeps no score now (HANDOFF §38): a completion without xp is fine…
+  const noXp = { clientId: 'a4', course: 'fsl', lessonId: 'fsl-greetings-1', mistakes: 0, cameraPassed: 0, completedAt: now - 30000 };
+  r = await h.api('POST', '/learn/sync', lea.token, { completions: [noXp] });
+  h.check('a completion without xp is saved', r.status === 200 && r.data.saved === 1, r);
+  r = await h.api('GET', '/learn/progress', lea.token);
+  h.check('and comes back without xp', r.data.completions?.find((c) => c.clientId === 'a4')?.xp === undefined, r.data);
   r = await h.api('GET', '/learn/leaderboard', lea.token);
-  const board = r.data.rows?.map((row) => `${row.name}:${row.xp}${row.me ? '*' : ''}`).join(',');
-  h.check('leaderboard: me and my friend only, this week, most XP first', board === 'Lea:38*,Max:25', r.data);
+  // …and the leaderboard counts different lessons (a4 repeats fsl-greetings-1).
+  const board = r.data.rows?.map((row) => `${row.name}:${row.lessons}${row.me ? '*' : ''}`).join(',');
+  h.check('leaderboard: me and my friend only, this week, different lessons, most first', board === 'Lea:3*,Max:1', r.data);
+  h.check('older app versions still get this week\'s XP', r.data.rows?.find((row) => row.me)?.xp === 38, r.data);
 
   r = await h.api('POST', '/learn/sync', lea.token, { completions: [done('f1', 'fsl-greetings-1', 99)] });
   h.check('more than 30 XP in one lesson is refused', r.status === 400, r.status);
@@ -590,9 +829,11 @@ async function ratelimitSuite() {
   h.check('…and it stays blocked', r.status === 429 && /few minutes/.test(r.data.message), r);
   r = await h.api('GET', '/auth/me', bystander.token);
   h.check('the other account still works', r.status === 200, r);
+  const hits = await activityOf(spammer.id);
+  h.check('all that is one "limit hit" record (one per limit per minute)', hits.filter((a) => a.type === 'limit.hit' && a.limiter === 'general').length === 1, hits.map((a) => `${a.type}:${a.limiter}`));
 }
 
-const SUITES = { errors: errorsSuite, auth: authSuite, sos: sosSuite, push: pushSuite, ai: aiSuite, scale: scaleSuite, learn: learnSuite, ratelimit: ratelimitSuite };
+const SUITES = { errors: errorsSuite, auth: authSuite, admin: adminSuite, sos: sosSuite, push: pushSuite, ai: aiSuite, scale: scaleSuite, learn: learnSuite, ratelimit: ratelimitSuite };
 
 (async () => {
   const wanted = process.argv.slice(2);

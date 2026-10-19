@@ -56,3 +56,11 @@
 {"text": "let me do my next sign language lesson", "intent": "learn.next_lesson"}
 {"text": "open google maps for me", "intent": "blocked.outside"}
 {"text": "pakitawagan ang tatay ko", "intent": "blocked.outside"}
+{"text": "put it in big letters so she can read: where is the comfort room", "intent": "text.show_big"}
+{"text": "pakita mo nang malaki na hindi ako nakakarinig", "intent": "text.show_big"}
+{"text": "i want to open the big text screen", "intent": "nav.big_text"}
+{"text": "dalhin mo ako sa camera na nagbabasa ng sign", "intent": "nav.sign_camera"}
+{"text": "i want to sign and let the phone talk for me", "intent": "nav.sign_camera"}
+{"text": "turuan mo ako ng signs", "intent": "nav.learn"}
+{"text": "pakibasa yung huling message ni Ana", "intent": "read.last_message_from"}
+{"text": "may nag-text ba sa akin", "intent": "read.new_messages"}

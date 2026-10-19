@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useCameraPermission } from 'react-native-vision-camera';
 import { useIsFocused } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { SignCamera } from '@/components/sign/SignCamera';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useScreenReader } from '@/hooks/use-screen-reader';
-import { useSignRecognition, type SignEvent } from '@/hooks/use-sign-recognition';
+import { signReadingAvailable, useSignRecognition, type SignEvent } from '@/hooks/use-sign-recognition';
 import { allSigns } from '@/learn/lessons';
 import { normalizeLabel, signMatches } from '@/learn/signMatch';
 import type { Course, Sign } from '@/learn/types';
@@ -21,7 +22,7 @@ type Props = {
   /** Done right: the parent moves on. */
   onPass: () => void;
   onSkip: () => void;
-  /** Camera practice can't work here (camera refused, or the sign reader can't be reached). */
+  /** Camera practice can't work here (camera refused, or this phone can't read signs). */
   onUnavailable?: () => void;
   /** Words for the skip button ("Skip" in a lesson, "Back" in practice). */
   skipLabel?: string;
@@ -30,7 +31,8 @@ type Props = {
 /**
  * "Do the sign": the front camera, and the same sign reader as sign mode.
  * The learner signs; the reader's best guesses decide (signMatch.ts). Camera
- * mistakes never cost a heart — try as often as you like, or skip.
+ * mistakes never cost anything — try as often as you like, or skip. It all
+ * runs on the phone, so it works offline.
  */
 export function SignCheck({ course, sign, onPass, onSkip, onUnavailable, skipLabel = 'Skip' }: Props) {
   const { prefs } = usePreferences();
@@ -39,9 +41,7 @@ export function SignCheck({ course, sign, onPass, onSkip, onUnavailable, skipLab
   const say = useFeedback();
   const screenReader = useScreenReader();
   const focused = useIsFocused();
-  const cameraRef = useRef<CameraView>(null);
-  const [permission, requestPermission] = useCameraPermissions();
-  const [cameraReady, setCameraReady] = useState(false);
+  const { hasPermission, requestPermission, canRequestPermission } = useCameraPermission();
   const [result, setResult] = useState<Result | null>(null);
   const [hint, setHint] = useState('');
 
@@ -52,7 +52,7 @@ export function SignCheck({ course, sign, onPass, onSkip, onUnavailable, skipLab
     if (result) return;
     if (event.type === 'hint') {
       setHint(event.message);
-      say(event.message);
+      if (event.message) say(event.message);
       return;
     }
     const passed = signMatches(course, sign.label, event.top5);
@@ -66,11 +66,9 @@ export function SignCheck({ course, sign, onPass, onSkip, onUnavailable, skipLab
     }
   };
 
-  const { phase, message } = useSignRecognition({
-    cameraRef,
-    cameraReady,
+  const { phase, message, output } = useSignRecognition({
     // Only while this screen is in front, and until there's a result.
-    active: Boolean(permission?.granted) && focused && !result,
+    active: hasPermission && focused && !result,
     language: course,
     unit: 'words',
     minConfidence: 0.35,
@@ -88,21 +86,18 @@ export function SignCheck({ course, sign, onPass, onSkip, onUnavailable, skipLab
     if (screenReader) announce(`Get ready. Sign ${sign.display}.`);
   }, [phase, result, screenReader, sign.display]);
 
-  // The sign reader can't be reached: tell the lesson to skip camera practice.
+  // This phone can't read signs, or the camera was refused for good: tell
+  // the lesson to skip camera practice.
   const reported = useRef(false);
   useEffect(() => {
-    if (message && phase === 'off' && !reported.current) {
+    const unavailable = !signReadingAvailable || (message && phase === 'off') || (!hasPermission && !canRequestPermission);
+    if (unavailable && !reported.current) {
       reported.current = true;
       onUnavailable?.();
     }
-  }, [message, phase, onUnavailable]);
+  }, [message, phase, hasPermission, canRequestPermission, onUnavailable]);
 
-  useEffect(() => {
-    if (permission && !permission.granted && !permission.canAskAgain) onUnavailable?.();
-  }, [permission, onUnavailable]);
-
-  if (!permission) return null;
-  if (!permission.granted) {
+  if (!hasPermission) {
     return (
       <View style={styles.card}>
         <Text style={styles.text}>To check your signing, AccessAI needs the camera.</Text>
@@ -133,17 +128,7 @@ export function SignCheck({ course, sign, onPass, onSkip, onUnavailable, skipLab
   return (
     <View style={styles.card}>
       <View style={styles.cameraWrap}>
-        <CameraView
-          ref={cameraRef}
-          style={styles.camera}
-          mode="video"
-          mute
-          mirror={false}
-          videoQuality="480p"
-          facing="front"
-          onCameraReady={() => setCameraReady(true)}
-          accessible={false}
-        />
+        <SignCamera output={output} facing="front" isActive={hasPermission && focused && !result} />
         {result ? (
           <View style={[styles.verdict, result.passed ? styles.pass : styles.fail]}>
             <Ionicons
@@ -159,7 +144,7 @@ export function SignCheck({ course, sign, onPass, onSkip, onUnavailable, skipLab
       </Text>
       {!result && (message || hint) ? (
         <Text style={styles.text} accessibilityLiveRegion="polite">
-          {phase === 'off' && message ? 'Camera practice needs the internet.' : message || hint}
+          {message || hint}
         </Text>
       ) : null}
       <View style={styles.actions}>

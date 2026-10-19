@@ -2,10 +2,18 @@
 // at sign-up (frontend/src/constants/legal.ts). Saved on each account when
 // it agrees, so we can always tell which wording someone accepted. Bump it —
 // here and in the app — whenever that wording changes.
-const TERMS_VERSION = '2026-10-07';
+const TERMS_VERSION = '2026-10-17';
 
 // How long a deletion request waits before the account is erased for good.
 // Logging in during this window lets the user cancel it.
 const DELETION_GRACE_DAYS = 15;
 
-module.exports = { TERMS_VERSION, DELETION_GRACE_DAYS };
+// How long the admin "delete in 30 days" waits; only an admin can undo it
+// (HANDOFF.md §42).
+const ADMIN_DELETION_DAYS = 30;
+
+// How long login and activity records are kept (HANDOFF.md §41). Stated in
+// the Terms — change both together.
+const ACTIVITY_RETENTION_DAYS = 90;
+
+module.exports = { TERMS_VERSION, DELETION_GRACE_DAYS, ADMIN_DELETION_DAYS, ACTIVITY_RETENTION_DAYS };

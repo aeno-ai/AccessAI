@@ -13,7 +13,7 @@ uvicorn==0.54.0
 pydantic==2.13.5
 httpx==0.28.1
 
-# Vector database (Accel's example sentences)
+# Vector database (Laya's example sentences)
 chromadb==1.5.9
 opentelemetry-proto==1.15.0
 opentelemetry-exporter-otlp-proto-grpc==1.15.0

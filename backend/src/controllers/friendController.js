@@ -3,10 +3,12 @@ const DirectMessage = require('../models/DirectMessage');
 const User = require('../models/Users');
 const { emitToUser, isOnline } = require('../realtime/io');
 const { ensureFriendCode, normalizeFriendCode } = require('../utils/friendCode');
+const { usableFilter } = require('../utils/accountState');
 
-// Accounts that can be found, befriended and messaged: active, verified,
-// not waiting to be deleted. (Missing fields count as fine, like protect().)
-const USABLE_ACCOUNT = { isActive: { $ne: false }, deletionScheduledFor: null, emailVerified: { $ne: false } };
+// Accounts that can be found, befriended and messaged: verified, and
+// usable right now — not deactivated, suspended or waiting to be deleted
+// (utils/accountState.js). Missing fields count as fine, like protect().
+const usableAccount = () => ({ ...usableFilter(), emailVerified: { $ne: false } });
 
 const PUBLIC_FIELDS = 'name firstName friendNote';
 
@@ -42,7 +44,7 @@ const listFriends = async (req, res, next) => {
     }).lean();
 
     const otherIds = friendships.map((f) => otherIdOf(f, me));
-    const users = await User.find({ _id: { $in: otherIds }, ...USABLE_ACCOUNT }).select(PUBLIC_FIELDS).lean();
+    const users = await User.find({ _id: { $in: otherIds }, ...usableAccount() }).select(PUBLIC_FIELDS).lean();
     const usersById = new Map(users.map((u) => [String(u._id), u]));
 
     // Every friend's last message and unread count at once, not one friend
@@ -109,7 +111,7 @@ const listRequests = async (req, res, next) => {
       createdAt: -1,
     });
     const otherIds = pending.map((f) => otherIdOf(f, me));
-    const users = await User.find({ _id: { $in: otherIds }, ...USABLE_ACCOUNT }).select(PUBLIC_FIELDS);
+    const users = await User.find({ _id: { $in: otherIds }, ...usableAccount() }).select(PUBLIC_FIELDS);
     const usersById = new Map(users.map((u) => [String(u._id), u]));
 
     const incoming = [];
@@ -134,7 +136,7 @@ const sendRequest = async (req, res, next) => {
     const code = normalizeFriendCode(req.body.code);
     // Same answer for "malformed" and "nobody has it", so codes can't be
     // probed for shape.
-    const target = code ? await User.findOne({ friendCode: code, ...USABLE_ACCOUNT }).select(PUBLIC_FIELDS) : null;
+    const target = code ? await User.findOne({ friendCode: code, ...usableAccount() }).select(PUBLIC_FIELDS) : null;
     if (!target) {
       return res.status(404).json({ message: 'No account has that friend code. Check it and try again.' });
     }
@@ -260,7 +262,7 @@ module.exports = {
   removeFriend,
   setSosCircle,
   // Shared with the direct-message controller.
-  USABLE_ACCOUNT,
+  usableAccount,
   isRequester,
   otherIdOf,
 };

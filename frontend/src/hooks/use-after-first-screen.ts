@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 /**
  * True a moment after `active` turns on (after login): once the first screen
  * has drawn and the app has a quiet moment, plus `delayMs`. Work that isn't
- * urgent — the live connection, push registration, "Hey Accel" — waits for
+ * urgent — the live connection, push registration, "Hey Laya" — waits for
  * it, so logging in or verifying an email shows the next screen at once
  * instead of everything starting together (slowest in a development build).
  *

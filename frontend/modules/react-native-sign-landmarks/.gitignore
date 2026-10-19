@@ -1,0 +1,4 @@
+# Fetched at build time (android/build.gradle downloadHolisticModel).
+android/src/main/assets/holistic_landmarker.task
+android/build/
+android/.cxx/

@@ -6,7 +6,7 @@
 // reinstalls when requirements.txt changes.
 //
 // It never stops the backend: if Python is missing or something fails, it
-// prints one line and exits quietly — Accel then uses only the rules on the
+// prints one line and exits quietly — Laya then uses only the rules on the
 // phone, and sign language says the server isn't reachable.
 const { spawn, spawnSync } = require('child_process');
 const crypto = require('crypto');

@@ -1,11 +1,11 @@
 const { P, H1, H2, H3, LABEL, bullets, numbered, table, code, note } = require('./lib');
 
 module.exports = () => [
-  H1('Part 6 — Accel\'s AI up close: embeddings, ChromaDB and RAG'),
-  P('This part is for learning. It explains, step by step and with real numbers from our own system, how Accel understands a sentence it has never seen: what an embedding is, what ChromaDB (a vector database) stores and how it searches, how the language model is used, and how all of this relates to **RAG** (Retrieval-Augmented Generation), the most common way apps use language models with their own data.'),
+  H1('Part 6 — Laya\'s AI up close: embeddings, ChromaDB and RAG'),
+  P('This part is for learning. It explains, step by step and with real numbers from our own system, how Laya understands a sentence it has never seen: what an embedding is, what ChromaDB (a vector database) stores and how it searches, how the language model is used, and how all of this relates to **RAG** (Retrieval-Augmented Generation), the most common way apps use language models with their own data.'),
 
   H2('6.1 The problem'),
-  P('A person says something to Accel. Accel must turn it into **one of 70 actions** (for example `nav.conversation`, `msg.send`, `read.new_messages`) and pull out details such as a friend\'s name or the message text. People say the same thing in countless ways, in English, Filipino or Taglish, and speech recognition makes mistakes ("coversation mode"). A list of patterns on the phone covers the common ways (`frontend/src/accel/rules.ts`); everything else goes to the AI service, which works in two steps: **find what it is closest to** (vector search), and only if that isn\'t clear, **ask a language model to choose** (the LLM).'),
+  P('A person says something to Laya. Laya must turn it into **one of 73 actions** (for example `nav.conversation`, `msg.send`, `read.new_messages`) and pull out details such as a friend\'s name or the message text. People say the same thing in countless ways, in English, Filipino or Taglish, and speech recognition makes mistakes ("coversation mode"). A list of patterns on the phone covers the common ways (`frontend/src/laya/rules.ts`); everything else goes to the AI service, which works in two steps: **find what it is closest to** (vector search), and only if that isn\'t clear, **ask a language model to choose** (the LLM).'),
 
   H2('6.2 Embeddings: meaning as numbers'),
   P('An **embedding model** reads a sentence and outputs a fixed-length list of numbers — a **vector**. It is trained so that sentences with similar meaning get vectors pointing in similar directions, even with completely different words or languages. We use **bge-m3** (run locally by Ollama), which outputs **1024 numbers** per sentence and understands English, Filipino and Taglish.'),
@@ -33,7 +33,7 @@ module.exports = () => [
       ['Client', '`chromadb.PersistentClient(path="ai/.chroma")` — everything is saved on disk, so the index survives restarts.'],
       ['On disk', '`ai/.chroma/chroma.sqlite3` (the documents, ids, labels and settings) plus one folder per collection holding the vector index files.'],
       ['Collection', 'One: `intent_examples` (like a table).'],
-      ['Records', '523 — one per example sentence in `ai/intents.json` (70 actions × about 7 or 8 examples each).'],
+      ['Records', '550 — one per example sentence in `ai/intents.json` (73 actions × about 7 or 8 examples each; 523 for 70 actions at the time of the run below).'],
       ['Each record', '**id** `<action>#<n>` (e.g. `nav.learn#2`), **document** (the sentence itself), **metadata** `{"intent": "nav.learn"}`, **embedding** (its 1024 numbers).'],
       ['Collection settings', '`hnsw:space = cosine` (how distance is measured) and `catalog_hash` (see "Rebuilding").'],
       ['Embedding function', 'None — we compute the embeddings ourselves with `bge-m3` and hand them to Chroma, so Chroma never needs its own model.'],
@@ -99,10 +99,10 @@ module.exports = () => [
   ),
   note('Example 3 is a real mistake by the small model, and a good lesson: a 3-billion-parameter model on a CPU is not always right. AccessAI is built so this can\'t cause harm: the phone\'s rules handle the common phrasings first (and got this one right); everything the AI chooses is read back ("You want me to reply …?") and needs a "yes"; and the AI can only ever pick from the list. The examples in `intents.json` are also the fix: adding "pakisabi kay Ana …" there would make the vector search answer it directly.'),
 
-  H2('6.7 What is RAG — and is Accel RAG?'),
+  H2('6.7 What is RAG — and is Laya RAG?'),
   P('**RAG (Retrieval-Augmented Generation)** is a way to make a language model answer from **your** information instead of only what it memorised in training. Instead of hoping the model knows, you look the facts up first and put them in its prompt.'),
   table(
-    ['RAG step', 'In a typical RAG app (e.g. "ask our help pages")', 'In Accel'],
+    ['RAG step', 'In a typical RAG app (e.g. "ask our help pages")', 'In Laya'],
     [
       ['1. Indexing', 'Split documents into chunks (~200–500 words), embed each, store in a vector database', 'Each example command is one "chunk"; embedded with bge-m3; stored in ChromaDB'],
       ['2. Retrieval', 'Embed the question; find the top-k most similar chunks', 'Embed what was said; find the 12 nearest examples → the 5 best actions'],
@@ -111,10 +111,10 @@ module.exports = () => [
     ],
     [16, 44, 40],
   ),
-  P('So Accel follows the RAG pattern — retrieve, augment, generate — but **generates a decision, not prose**. This variant is often called **retrieval-augmented classification** or **semantic routing**. Constraining the output is what makes it safe for an app that acts on what it hears: a free-text answer can hallucinate; an `enum` can\'t.'),
+  P('So Laya follows the RAG pattern — retrieve, augment, generate — but **generates a decision, not prose**. This variant is often called **retrieval-augmented classification** or **semantic routing**. Constraining the output is what makes it safe for an app that acts on what it hears: a free-text answer can hallucinate; an `enum` can\'t.'),
   H3('Why retrieval helps (the reasons RAG exists)'),
   ...bullets([
-    '**Grounding:** the model chooses from things that really exist (our 70 actions), described in our words.',
+    '**Grounding:** the model chooses from things that really exist (our 73 actions), described in our words.',
     '**Shorter prompts:** 5 candidates instead of all 46 — faster on a laptop CPU and less confusing for a small model.',
     '**Skipping the LLM:** when retrieval is clear (most commands), there is no LLM call at all: ~0.2 s instead of 4–19 s.',
     '**Easy to improve without training:** add example sentences, and the index rebuilds; no model is retrained.',
@@ -140,14 +140,14 @@ module.exports = () => [
   ),
 
   H2('6.8 Exercise: a "real" RAG feature for AccessAI'),
-  P('A natural next feature is "Ask Accel how to use the app" — answering questions from help texts, which is classic RAG. Everything needed is already in `ai/app/`:'),
+  P('A natural next feature is "Ask Laya how to use the app" — answering questions from help texts, which is classic RAG. Everything needed is already in `ai/app/`:'),
   ...numbered([
     'Write short help articles (one topic each) in `ai/help/*.md`.',
     'Split each into chunks of ~150–300 words; embed with `ollama.embed` (bge-m3).',
     'Store them in a second collection, e.g. `help_chunks`, with metadata `{article, title}` — the same way `IntentIndex.build` does, including the hash so it rebuilds on change.',
     'On a question: embed it, `query(n_results=4)`, and drop chunks below a similarity threshold (e.g. 0.5) — if none are left, answer "I don\'t know that yet."',
     'Prompt `qwen2.5:3b`: "Answer in two short sentences using ONLY the passages below; if they don\'t contain the answer, say you don\'t know. Passages: [1] … [2] …", with the question in tags.',
-    'Return the answer with the article titles it came from, and have Accel read it aloud.',
+    'Return the answer with the article titles it came from, and have Laya read it aloud.',
     'Measure it like `app/eval.py`: a list of questions with the article that should answer each; check retrieval hits the right article and answers stay grounded.',
   ]),
   ...code([
@@ -165,7 +165,7 @@ module.exports = () => [
     'Start Ollama (`ollama serve`, or open the Ollama app).',
     '`cd ai` then `.venv\\Scripts\\python -m app.explain "your sentence"` — prints the 8 nearest examples with their similarity, the decision rule, and what was chosen.',
     'Run it with no sentence to type several in a row.',
-    '`.venv\\Scripts\\python -m app.eval` — scores Accel on `ai/eval.jsonl` (sentences that are NOT in the examples), to see the effect of new examples or thresholds.',
+    '`.venv\\Scripts\\python -m app.eval` — scores Laya on `ai/eval.jsonl` (sentences that are NOT in the examples), to see the effect of new examples or thresholds.',
     'Thresholds live in `ai/app/config.py` (`AI_HIGH`, `AI_MARGIN`, `AI_LOW`, `AI_TOPK` can be set in `backend/.env`).',
   ]),
 ];

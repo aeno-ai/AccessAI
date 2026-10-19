@@ -62,6 +62,16 @@ export default function SignSettingsScreen() {
           value={prefs.signFlip}
           onValueChange={(value) => setPref('signFlip', value)}
         />
+        {/* Testing only: never in a store or preview build. */}
+        {__DEV__ ? (
+          <ToggleRow
+            divided
+            label="Show landmarks (testing)"
+            description="Draws the points the camera finds and the signing line."
+            value={prefs.signShowLandmarks}
+            onValueChange={(value) => setPref('signShowLandmarks', value)}
+          />
+        ) : null}
       </View>
 
       <SectionHeader title="What's ready" />

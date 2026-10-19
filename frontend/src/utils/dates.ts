@@ -47,6 +47,24 @@ export function whenText(ms: number, now: number = Date.now()): string {
   return formatLongDate(date);
 }
 
+const MONTHS_FIL = ['Enero', 'Pebrero', 'Marso', 'Abril', 'Mayo', 'Hunyo', 'Hulyo', 'Agosto', 'Setyembre', 'Oktubre', 'Nobyembre', 'Disyembre'];
+const WEEKDAYS_FIL = ['Linggo', 'Lunes', 'Martes', 'Miyerkules', 'Huwebes', 'Biyernes', 'Sabado'];
+
+/**
+ * whenText in English or Filipino (what Laya says): "ngayong araw, 3:10
+ * PM", "kahapon, 3:10 PM", "Lunes, 3:10 PM", "Oktubre 10, 2026".
+ */
+export function whenTextIn(lang: 'en' | 'fil', ms: number, now: number = Date.now()): string {
+  if (lang === 'en') return whenText(ms, now);
+  const date = new Date(ms);
+  const today = new Date(now);
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  if (ms >= startOfToday) return `ngayong araw, ${formatClock(date)}`;
+  if (ms >= startOfToday - DAY_MS) return `kahapon, ${formatClock(date)}`;
+  if (ms >= startOfToday - 6 * DAY_MS) return `noong ${WEEKDAYS_FIL[date.getDay()]}, ${formatClock(date)}`;
+  return `${MONTHS_FIL[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
+
 /**
  * Whole days left until `date`, rounded up, so "3 hours from now" counts
  * as 1 day rather than 0. Never negative.

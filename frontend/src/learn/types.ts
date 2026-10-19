@@ -41,15 +41,11 @@ export type Completion = {
   clientId: string;
   course: Course;
   lessonId: string;
-  xp: number;
+  /** Only on lessons finished before Learn stopped keeping score (2026-10-17). */
+  xp?: number;
   /** Wrong quiz answers (0 = perfect). */
   mistakes: number;
   /** Signs done right in front of the camera. */
   cameraPassed: number;
   completedAt: number;
 };
-
-/** Hearts: 5 at most, one back every 30 minutes. */
-export type Hearts = { count: number; updatedAt: number };
-
-export type DailyGoal = 10 | 20 | 30 | 50;
