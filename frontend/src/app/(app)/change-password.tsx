@@ -19,7 +19,7 @@ import { announce } from '@/utils/a11y';
 import { passwordOk } from '@/utils/password';
 import { goBack } from '@/utils/navigation';
 
-type MeResponse = { user: { email: string; hasPassword?: boolean } };
+type MeResponse = { user: { email: string; hasPassword?: boolean; google?: boolean } };
 type ChangeResponse = { ok?: boolean; verified?: boolean; token?: string };
 
 const NOT_CHANGED = "Your password wasn't changed. Please try again.";
@@ -68,7 +68,7 @@ export default function ChangePasswordScreen() {
     }, []),
   );
 
-  const googleOnly = account?.hasPassword === false;
+  const googleOnly = account?.hasPassword === false || account?.google === true;
 
   const save = async () => {
     setError('');

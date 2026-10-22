@@ -22,6 +22,8 @@ type Profile = {
   friendCode?: string;
   friendNote: string;
   hasPassword?: boolean;
+  /** Signs in with Google: no password to change (HANDOFF §56). */
+  google?: boolean;
 };
 type MeResponse = { user: Profile };
 type UpdateResponse = { token: string; user: Profile };
@@ -200,7 +202,7 @@ export default function ProfileScreen() {
                   divided
                   icon="lock-closed-outline"
                   title="Password"
-                  description={profile.hasPassword === false ? 'Signs in with Google' : 'Change your password'}
+                  description={profile.hasPassword === false || profile.google ? 'Signs in with Google' : 'Change your password'}
                   onPress={() => router.push('/change-password' as Href)}
                 />
               </View>

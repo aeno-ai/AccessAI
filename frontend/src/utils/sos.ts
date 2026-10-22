@@ -25,14 +25,26 @@ const PLACE_TIMEOUT_MS = 2500;
 export const PLACE_LOOKUP_MS = 10000;
 
 /**
+ * Whether location may be used, asking only when it hasn't been allowed yet.
+ * Asking again when it already is still opens Android's (invisible)
+ * permission screen for a moment, which ate taps every 30 s during an
+ * active SOS (HANDOFF §56).
+ */
+export async function allowLocation(): Promise<boolean> {
+  const current = await Location.getForegroundPermissionsAsync();
+  if (current.granted) return true;
+  if (!current.canAskAgain) return false;
+  return (await Location.requestForegroundPermissionsAsync()).granted;
+}
+
+/**
  * The phone's position, from its own GPS — works with no internet. Uses the
  * last known fix if a fresh one takes too long, and null if location is off
  * or not allowed (the SOS still goes out, just without coordinates).
  */
 export async function locate(accuracy: Location.Accuracy = Location.Accuracy.High): Promise<Coordinates | null> {
   try {
-    const { granted } = await Location.requestForegroundPermissionsAsync();
-    if (!granted) {
+    if (!(await allowLocation())) {
       return null;
     }
     const fresh = Location.getCurrentPositionAsync({ accuracy });

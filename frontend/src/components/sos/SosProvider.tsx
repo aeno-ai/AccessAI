@@ -12,6 +12,7 @@ import { useFriends } from '@/realtime/FriendsProvider';
 import { announce } from '@/utils/a11y';
 import { speakMixed } from '@/utils/speechHelper';
 import {
+  allowLocation,
   describePlace,
   dropSosOutbox,
   locate,
@@ -110,7 +111,10 @@ export function SosProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [eventId, sharingUntil]);
 
-  // The live location loop.
+  // The live location loop: one position right away, then the phone itself
+  // reports new positions (watchPositionAsync) instead of a GPS request every
+  // 30 s, which made taps stutter during an SOS (HANDOFF §56). Standing still,
+  // the last position is sent again every 2 minutes so friends see it's fresh.
   useEffect(() => {
     if (!sharingLocation || !appActive || !eventId || !mySos?.sharingUntil) {
       return;
@@ -118,31 +122,60 @@ export function SosProvider({ children }: { children: ReactNode }) {
     const until = mySos.sharingUntil;
     void activateKeepAwakeAsync('sos').catch(() => {});
     let stopped = false;
-    const tick = async () => {
-      if (stopped) return;
+    let sending = false;
+    let latest: Coordinates | null = null;
+    let subscription: Location.LocationSubscription | null = null;
+
+    const send = async (coords: Coordinates, force = false) => {
+      latest = coords;
+      if (stopped || sending) return;
       if (Date.now() > until) {
         setSharingEnded(eventId);
         return;
       }
-      const coords = await locate(Location.Accuracy.Balanced);
-      if (!coords || stopped) return;
       const last = lastSent.current;
       const moved = last ? metersBetween(last.coords, coords) : Infinity;
-      if (last && moved < MIN_MOVE_METERS && Date.now() - last.at < RESEND_AFTER_MS) return;
+      if (!force && last && moved < MIN_MOVE_METERS && Date.now() - last.at < RESEND_AFTER_MS) return;
+      sending = true;
       try {
         await shareSosLocation(eventId, coords);
         lastSent.current = { coords, at: Date.now() };
       } catch (error) {
         // 409: the SOS ended or its 30 minutes are up — stop.
         if (isApiError(error) && (error.status === 409 || error.status === 404)) setSharingEnded(eventId);
-        // Offline: try again on the next tick.
+        // Offline: the next position (or the 2-minute resend) tries again.
+      } finally {
+        sending = false;
       }
     };
-    void tick();
-    const timer = setInterval(() => void tick(), LOCATION_EVERY_MS);
+
+    void (async () => {
+      const first = await locate(Location.Accuracy.Balanced);
+      if (first) void send(first);
+      if (stopped || !(await allowLocation())) return;
+      try {
+        const watching = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: LOCATION_EVERY_MS, distanceInterval: MIN_MOVE_METERS },
+          (position) =>
+            void send({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+            }),
+        );
+        if (stopped) watching.remove();
+        else subscription = watching;
+      } catch {
+        // Location turned off: the first position (if any) and resends still go.
+      }
+    })();
+    const resend = setInterval(() => {
+      if (latest) void send(latest, true);
+    }, RESEND_AFTER_MS);
     return () => {
       stopped = true;
-      clearInterval(timer);
+      subscription?.remove();
+      clearInterval(resend);
       deactivateKeepAwake('sos');
     };
   }, [sharingLocation, appActive, eventId, mySos?.sharingUntil]);

@@ -85,7 +85,7 @@ function LessonRun({
   const [exercises, setExercises] = useState<Exercise[]>(initialExercises);
 
   const [index, setIndex] = useState(0);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [picked, setSelected] = useState<string | null>(null);
   const [checked, setChecked] = useState<Checked>(null);
   const [mistakes, setMistakes] = useState(0);
   const [quizQuestions, setQuizQuestions] = useState(0);
@@ -111,6 +111,10 @@ function LessonRun({
   useEffect(() => () => stopMixed(), []);
 
   const exercise = exercises[index] ?? null;
+  // "Which video signs …?" opens playing video 1, so video 1 starts chosen —
+  // with nothing highlighted while a video played, people didn't know what
+  // was selected (owner, HANDOFF §56). Tapping another video still changes it.
+  const selected = picked ?? (exercise?.kind === 'read-pick' ? (exercise.options[0]?.label ?? null) : null);
 
   const finish = useCallback(async () => {
     const result = await learn.finishLesson({ lesson, mistakes, cameraPassed: Math.min(10, cameraPassed) });

@@ -27,6 +27,7 @@ const PASSWORD_NOT_CHANGED = { message: "Your password wasn't changed. Please tr
 // 400, not 401: a 401 would sign the app out.
 const WRONG_PASSWORD = { code: 'WRONG_PASSWORD', message: 'Your current password is wrong.' };
 const EMAIL_TAKEN = { message: 'That email is already used by another account.' };
+const GOOGLE_SIGNIN = { code: 'GOOGLE_ACCOUNT', message: 'This email signs in with Google. Tap Continue with Google.' };
 const EMAIL_FAILED = { code: 'EMAIL_FAILED', message: "We couldn't send the email. Please try again." };
 // Accounts made with "Continue with Google" have no password and never get
 // one: they keep signing in with Google (owner, 2026-10-13).
@@ -236,6 +237,10 @@ const forgotPassword = async (req, res, next) => {
     const slot = await takeCodeSlot(req.body.email, 'reset_password');
     if (!slot.ok) return res.status(429).json(slotRefused(slot, 'reset_password'));
     const user = await User.findOne({ email: req.body.email });
+    // Signs in with Google (owner, HANDOFF §56): no code — even for the few
+    // that added a password back when that was allowed — and the person is
+    // told to use Google. Sign-up already says an email has a Google account.
+    if (user && user.googleId && !refusalFor(user)) return res.status(409).json(GOOGLE_SIGNIN);
     // A Google account (no password) gets no email at all: it can't make a
     // password. It still gets the same answer as everyone, so this can't
     // tell anyone which emails have accounts; the screen tells people who
@@ -272,7 +277,7 @@ const verifyResetCode = async (req, res, next) => {
     const { email, code } = req.body;
 
     const user = await User.findOne({ email });
-    if (!user || !user.password || !(await checkCode(user._id, 'reset_password', code))) {
+    if (!user || !user.password || user.googleId || !(await checkCode(user._id, 'reset_password', code))) {
       return res.status(400).json(INVALID_CODE);
     }
     // The right code proves they own the inbox, so they may hear why (a
@@ -303,7 +308,7 @@ const resetPassword = async (req, res, next) => {
 
     const ticket = verifyTicket(resetTicket, 'password_reset');
     const user = ticket ? await User.findById(ticket.sub) : null;
-    if (!user || !user.password || ticket.pw !== passwordFingerprint(user)) {
+    if (!user || !user.password || user.googleId || ticket.pw !== passwordFingerprint(user)) {
       return res.status(400).json(RESET_EXPIRED);
     }
     const refusal = refusalFor(user);
@@ -380,7 +385,7 @@ const getMe = async (req, res, next) => {
   try {
     // protect() already confirmed the account exists and is active.
     const user = await User.findById(req.user.userId).select(
-      'email name firstName lastName role password friendCode friendNote termsVersion',
+      'email name firstName lastName role password googleId friendCode friendNote termsVersion',
     );
     if (!user) return res.status(404).json({ message: 'Account not found' });
     user.friendCode = await ensureFriendCode(user);
@@ -393,6 +398,8 @@ const getMe = async (req, res, next) => {
         // password, or — for accounts created with Google — with an emailed
         // code.
         hasPassword: typeof user.password === 'string',
+        // Signs in with Google: no password codes or changes (HANDOFF §56).
+        google: Boolean(user.googleId),
       },
       // The Terms changed since this account agreed (or it's from before we
       // kept track): the app asks once, "We updated our Terms".
@@ -434,11 +441,11 @@ const updateMe = async (req, res, next) => {
 // password yet, so they confirm with a code emailed by sendPasswordCode.
 const sendPasswordCode = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.userId).select('password').lean();
+    const user = await User.findById(req.user.userId).select('password googleId').lean();
     if (!user) return res.status(404).json({ message: 'Account not found' });
     // This used to email a code so a Google account could add a password.
     // Google accounts now stay Google-only, so there's nothing to send.
-    if (!user.password) return res.status(403).json(GOOGLE_ACCOUNT);
+    if (!user.password || user.googleId) return res.status(403).json(GOOGLE_ACCOUNT);
     res.status(400).json({ message: 'Your account already has a password. Change it with your current password.' });
   } catch (error) {
     next(error);
@@ -454,7 +461,9 @@ const changePassword = async (req, res, next) => {
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ message: 'Account not found' });
 
-    if (user.password) {
+    if (user.googleId) {
+      return res.status(403).json(GOOGLE_ACCOUNT);
+    } else if (user.password) {
       if (typeof currentPassword !== 'string' || !(await bcrypt.compare(currentPassword, user.password))) {
         return res.status(400).json(WRONG_PASSWORD);
       }
