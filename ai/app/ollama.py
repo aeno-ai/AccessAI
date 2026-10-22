@@ -2,6 +2,9 @@
 
 Ollama runs the AI models on this computer. Start it with `ollama serve`
 (or the Ollama app). Everything here talks to it over plain HTTP.
+
+With AI_PROVIDER=gemini, embed() and chat_json() hand over to app/gemini.py
+(Google's cloud) instead — same answers, same errors, no Ollama needed.
 """
 import asyncio
 import json
@@ -37,6 +40,10 @@ async def close():
     if _shared is not None:
         await _shared.aclose()
         _shared = None
+    if config.GEMINI:
+        from . import gemini
+
+        await gemini.close()
 
 
 # Ollama works through one request at a time; more just wait in its queue.
@@ -102,6 +109,10 @@ async def ensure_models(models, log):
 
 async def embed(texts):
     """Sentences → embeddings (one list of numbers per sentence)."""
+    if config.GEMINI:  # AI_PROVIDER=gemini: the cloud does it (app/gemini.py)
+        from . import gemini
+
+        return await gemini.embed(texts)
     try:
         async with _take_slot():
             response = await _client().post(
@@ -119,6 +130,10 @@ async def chat_json(system, user, schema, max_tokens=160, timeout=30.0):
     """Asks the chat model and forces its answer to match `schema` (a JSON
     schema). Ollama only lets the model produce text that fits the schema —
     e.g. an `enum` means it literally cannot answer anything outside it."""
+    if config.GEMINI:
+        from . import gemini
+
+        return await gemini.chat_json(system, user, schema, max_tokens=max_tokens, timeout=timeout)
     try:
         async with _take_slot():
             response = await _client().post(

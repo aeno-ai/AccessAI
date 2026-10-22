@@ -2,10 +2,11 @@ const fs = require('fs');
 const path = require('path');
 
 // Talks to the Python AI service in the repo's ai/ folder (Ollama + vector
-// search for Laya, MediaPipe + the sign models for sign language). It only
-// listens on this computer (127.0.0.1), so the phone can never reach it
-// directly — every call goes through these authenticated, rate-limited
-// routes first.
+// search for Laya, MediaPipe + the sign models for sign language). Locally
+// it only listens on this computer (127.0.0.1); deployed (AI_SERVICE_URL)
+// it answers only requests carrying AI_SHARED_KEY. Either way the phone
+// never reaches it directly — every call goes through these authenticated,
+// rate-limited routes first.
 const AI_URL = process.env.AI_SERVICE_URL || `http://127.0.0.1:${process.env.AI_PORT || 8001}`;
 // ACCEL_AI_TIMEOUT_MS is the name from before the assistant was renamed Laya.
 const DEFAULT_TIMEOUT_MS = Number(process.env.LAYA_AI_TIMEOUT_MS || process.env.ACCEL_AI_TIMEOUT_MS) || 15000;
@@ -26,7 +27,12 @@ async function callAi(route, { method = 'GET', json, body, headers = {}, timeout
   try {
     response = await fetch(`${AI_URL}${route}`, {
       method,
-      headers: json !== undefined ? { 'Content-Type': 'application/json', ...headers } : headers,
+      headers: {
+        ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        // The AI service on a public address (Render) only answers us.
+        ...(process.env.AI_SHARED_KEY ? { 'X-AI-Key': process.env.AI_SHARED_KEY } : {}),
+        ...headers,
+      },
       body: json !== undefined ? JSON.stringify(json) : body,
       signal: AbortSignal.timeout(timeoutMs),
     });

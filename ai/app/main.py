@@ -9,9 +9,11 @@ talks to the Node backend, which checks the login and forwards here.
 
 Sign language works as soon as this starts. Laya waits for Ollama
 (`ollama serve`), downloads its two models the first time, builds the
-vector index, then reports ready.
+vector index, then reports ready. With AI_PROVIDER=gemini the models run in
+Google's cloud instead (app/gemini.py), so it can also run on a small server.
 """
 import asyncio
+import hmac
 import json
 import sys
 from contextlib import asynccontextmanager
@@ -20,6 +22,7 @@ sys.modules.setdefault("tensorflow", None)  # see sign/features.py
 
 from fastapi import FastAPI, Header, HTTPException, Request  # noqa: E402
 from fastapi.concurrency import run_in_threadpool  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 from . import config, ollama  # noqa: E402
@@ -38,8 +41,12 @@ def log(message):
 
 
 async def bootstrap():
-    """Waits for Ollama, downloads missing models, builds the vector index."""
+    """Waits for Ollama, downloads missing models, builds the vector index
+    (with AI_PROVIDER=gemini: checks the key, builds the index)."""
     state["catalog"] = json.loads(config.INTENTS_FILE.read_text(encoding="utf-8"))
+    if config.GEMINI:
+        await bootstrap_gemini()
+        return
     told = False
     while True:
         try:
@@ -77,6 +84,32 @@ async def bootstrap():
             await asyncio.sleep(15)
 
 
+async def bootstrap_gemini():
+    """The cloud runs the models: no Ollama to wait for, nothing to download."""
+    from . import gemini
+
+    if not config.GEMINI_API_KEY:
+        state["status"] = "GEMINI_API_KEY is not set"
+        log("AI_PROVIDER=gemini but GEMINI_API_KEY is empty — Laya uses only the phone's rules.")
+        return
+    while True:
+        try:
+            state["status"] = "building the vector index"
+            index = IntentIndex()
+            await index.build(state["catalog"], log)
+            state["index"] = index
+            state["status"] = "checking Gemini"
+            await gemini.check()
+            state["ready"] = True
+            state["status"] = "ready"
+            log(f"Laya's AI is ready (Gemini: {config.CHAT_MODEL} + {config.EMBED_MODEL}).")
+            return
+        except Exception as error:  # noqa: BLE001 — keep trying; the backend works without us
+            state["status"] = "retrying"
+            log(f"Setup didn't finish ({error}). Trying again in 30 s…")
+            await asyncio.sleep(30)
+
+
 @asynccontextmanager
 async def lifespan(_app):
     state["sign_models"] = registry.load_all()
@@ -92,12 +125,29 @@ async def lifespan(_app):
 app = FastAPI(title="AccessAI AI service", lifespan=lifespan, docs_url="/docs" if config.DEBUG else None, redoc_url=None)
 
 
+# With a public address (e.g. Render), only the backend may call us: it
+# sends AI_SHARED_KEY in X-AI-Key. Without it anyone could use up the
+# Gemini quota. Unset (on this computer, 127.0.0.1 only) → not checked.
+# /health stays open: the host's health check can't send the key, and it
+# only says whether Laya is ready and which models run.
+@app.middleware("http")
+async def require_shared_key(request: Request, call_next):
+    if (
+        config.SHARED_KEY
+        and request.url.path != "/health"
+        and not hmac.compare_digest(request.headers.get("x-ai-key", ""), config.SHARED_KEY)
+    ):
+        return JSONResponse({"detail": "forbidden"}, status_code=403)
+    return await call_next(request)
+
+
 # ---------------------------------------------------------------- status
 @app.get("/health")
 async def health():
     return {
         "ready": state["ready"],
         "status": state["status"],
+        "provider": config.PROVIDER,
         "chatModel": config.CHAT_MODEL,
         "embedModel": config.EMBED_MODEL,
         "sign": [model.describe() for model in state["sign_models"].values()],
