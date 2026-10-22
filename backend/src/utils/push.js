@@ -23,7 +23,7 @@ async function tokensOf(userIds) {
     for (const entry of user.pushTokens ?? []) {
       if (seen.has(entry.token)) continue;
       seen.add(entry.token);
-      tokens.push({ userId: String(user._id), token: entry.token });
+      tokens.push({ userId: String(user._id), token: entry.token, deviceId: entry.deviceId });
     }
   }
   return tokens;
@@ -78,7 +78,10 @@ async function postToExpo(messages, retries = 0) {
 async function pushToUsers(userIds, notification) {
   try {
     if (!userIds.length) return;
-    const targets = await tokensOf(userIds);
+    // exceptDeviceId: leave out one phone (the one that just signed in).
+    const targets = (await tokensOf(userIds)).filter(
+      (target) => !notification.exceptDeviceId || target.deviceId !== notification.exceptDeviceId,
+    );
     for (let start = 0; start < targets.length; start += BATCH) {
       const batch = targets.slice(start, start + BATCH);
       const tickets = await postToExpo(

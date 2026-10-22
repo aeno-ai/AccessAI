@@ -41,6 +41,7 @@ const {
   changeEmail,
   sendDeletionCode,
   requestDeletion,
+  signOutOthers,
 } = require('../controllers/authController');
 const {
   googleStart,
@@ -101,6 +102,8 @@ router.patch('/me', protect, updateMeValidators, validate, updateMe);
 // can't add one (403 GOOGLE_ACCOUNT); /me/password-code only says so now.
 router.post('/me/password-code', emailCodeLimiter, protect, sendPasswordCode);
 router.patch('/me/password', authLimiter, protect, changePasswordValidators, validate, changePassword);
+// "Secure my account": sign out every other phone (HANDOFF §56).
+router.post('/me/sign-out-others', authLimiter, protect, signOutOthers);
 
 // "Change email": a code is sent to the new address, then entered here.
 router.post('/me/email-code', emailCodeLimiter, protect, emailChangeCodeValidators, validate, sendEmailChangeCode);

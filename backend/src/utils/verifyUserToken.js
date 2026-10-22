@@ -37,6 +37,8 @@ async function verifyUserToken(token) {
     $and: [
       usableFilter(),
       { $or: [{ passwordChangedAt: null }, { passwordChangedAt: { $lt: new Date(decoded.iat * 1000) } }] },
+      // "Sign out other phones" (HANDOFF §56).
+      { $or: [{ sessionsRevokedAt: null }, { sessionsRevokedAt: { $lt: new Date(decoded.iat * 1000) } }] },
     ],
   });
   return allowed ? decoded : null;

@@ -12,6 +12,14 @@ const APP_HEADERS: Record<string, string> = {
   ...(Constants.expoConfig?.version ? { 'X-App-Version': Constants.expoConfig.version } : {}),
 };
 
+// This phone's id (the push device id), sent so a login can tell the
+// account's OTHER phones about it (HANDOFF §56). Set once at start-up by
+// use-bootstrap; push.ts can't be imported here (it imports this file).
+let deviceIdHeader: string | null = null;
+export function setDeviceIdHeader(id: string | null): void {
+  deviceIdHeader = id;
+}
+
 // A 401 that says why: an admin paused the account or is deleting it.
 const SIGN_OUT_CODES = ['ACCOUNT_SUSPENDED', 'ACCOUNT_DELETION_BY_ADMIN'];
 
@@ -96,6 +104,7 @@ export async function apiFetch<T = unknown>(endpoint: string, options: ApiOption
       headers: {
         'Content-Type': 'application/json',
         ...APP_HEADERS,
+        ...(deviceIdHeader ? { 'X-Device-Id': deviceIdHeader } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...init.headers,
       },

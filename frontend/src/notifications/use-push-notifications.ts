@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useAfterFirstScreen } from '@/hooks/use-after-first-screen';
 import { useBootstrap } from '@/hooks/use-bootstrap';
 import { lastKnownDeviceToken, Notifications, registerForPush } from '@/notifications/push';
@@ -20,6 +20,9 @@ function openFrom(data: PushData, currentUserId: string | null) {
     router.push({ pathname: '/chat/[friendId]', params: { friendId: data.friendId } });
   } else if (data.type === 'sos') {
     router.navigate('/');
+  } else if (data.type === 'login_alert') {
+    // "Your account was just signed in on another phone" (HANDOFF §56).
+    router.push('/secure-account' as Href);
   }
 }
 

@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { tellOtherPhones } from '@/utils/loginNotice';
 import { AuthInput } from '@/components/auth/AuthInput';
 import { GoogleSignInButton, OrDivider } from '@/components/auth/GoogleSignInButton';
 import { PendingDeletionModal } from '@/components/auth/PendingDeletionModal';
@@ -23,6 +24,8 @@ import { startCodeCooldown } from '@/hooks/use-code-cooldown';
 
 type LoginResponse = {
   token: string;
+  /** Other phones still signed in to this account (they were just told). */
+  otherDevices?: number;
 };
 
 export default function LoginScreen() {
@@ -68,6 +71,7 @@ export default function LoginScreen() {
       // Stays "Logging in…" until the app moves on — clearing it here would
       // flash the Login button back for a moment.
       await signIn(data.token);
+      tellOtherPhones(data.otherDevices);
     } catch (e: unknown) {
       setLoading(false);
       if (isApiError(e) && e.body.code === 'ACCOUNT_PENDING_DELETION') {
@@ -123,7 +127,7 @@ export default function LoginScreen() {
         >
           <View style={styles.header}>
             <AppLogo size={72} />
-            <Text style={styles.title}>Welcome back</Text>
+            <Text style={styles.title}>Welcome!</Text>
             <Text style={styles.subtitle}>Log in to continue with AccessAI</Text>
           </View>
           {signOutNotice ? (

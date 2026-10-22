@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
+import { tellOtherPhones } from '@/utils/loginNotice';
 import * as WebBrowser from 'expo-web-browser';
 import { PendingDeletionModal } from '@/components/auth/PendingDeletionModal';
 import { apiFetch, apiUrl, isApiError } from '@/api/apiClient';
@@ -76,6 +77,7 @@ export function GoogleSignInButton() {
       });
       if ('token' in data) {
         await signIn(data.token);
+        tellOtherPhones((data as { otherDevices?: number }).otherDevices);
         return;
       }
       router.push({

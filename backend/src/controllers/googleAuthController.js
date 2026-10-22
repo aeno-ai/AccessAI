@@ -7,6 +7,7 @@ const google = require('../utils/googleOAuth');
 const { signUserToken, isDeletionDue } = require('../utils/userSession');
 const { refusalFor } = require('../utils/accountState');
 const { recordUserActivity } = require('../utils/activityLog');
+const { alertOtherDevices } = require('../utils/loginAlerts');
 
 // How "Continue with Google" works:
 //
@@ -188,7 +189,7 @@ const googleExchange = async (req, res, next) => {
     }
 
     recordUserActivity(req, { userId: user._id, type: 'login.success', method: 'google' });
-    res.json({ token: signUserToken(user) });
+    res.json({ token: signUserToken(user), otherDevices: alertOtherDevices(req, user) });
   } catch (error) {
     next(error);
   }

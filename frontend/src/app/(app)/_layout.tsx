@@ -69,6 +69,7 @@ export default function AppLayout() {
             <Drawer.Screen name="profile" options={{ drawerItemStyle: { display: 'none' } }} />
             <Drawer.Screen name="change-email" options={{ drawerItemStyle: { display: 'none' } }} />
             <Drawer.Screen name="change-password" options={{ drawerItemStyle: { display: 'none' } }} />
+            <Drawer.Screen name="secure-account" options={{ drawerItemStyle: { display: 'none' } }} />
             <Drawer.Screen name="emergency-contacts" options={{ drawerItemStyle: { display: 'none' } }} />
             <Drawer.Screen name="chat/[friendId]" options={{ drawerItemStyle: { display: 'none' } }} />
             <Drawer.Screen name="laya-guide" options={{ drawerItemStyle: { display: 'none' } }} />

@@ -33,6 +33,9 @@ const userSchema = new mongoose.Schema({
   // Set whenever the password is reset. protect() refuses tokens issued
   // before it, so a reset signs the account out everywhere.
   passwordChangedAt: { type: Date },
+  // "Sign out other phones" (Secure my account): tokens issued before this
+  // are refused, like after a password change (HANDOFF §56).
+  sessionsRevokedAt: { type: Date },
   // Collected separately at sign-up. Not `required` here: accounts created
   // before these fields existed don't have them, and a required field would
   // make every later save of those accounts fail (e.g. an admin

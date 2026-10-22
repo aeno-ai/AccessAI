@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { apiFetch } from '@/api/apiClient';
+import { apiFetch, setDeviceIdHeader } from '@/api/apiClient';
 import { onUnauthorized } from '@/utils/authEvents';
 import { setConversationAccount } from '@/db/conversations';
 import { clearFriendData } from '@/db/friends';
@@ -132,6 +132,11 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [signOutNotice, setSignOutNotice] = useState<string | null>(null);
   const appStateRef = useRef(AppState.currentState);
+
+  // Every request says which phone it's from (logins alert the others).
+  useEffect(() => {
+    void pushDeviceId().then((id) => setDeviceIdHeader(id));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

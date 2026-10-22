@@ -214,6 +214,12 @@ export default function ProfileScreen() {
               <SectionHeader title="Sign-in" />
               <View style={styles.card}>
                 <SettingRow
+                  icon="shield-checkmark-outline"
+                  title="Secure my account"
+                  description="Sign out other phones, or change your password"
+                  onPress={() => router.push('/secure-account' as Href)}
+                />
+                <SettingRow
                   icon="mail-outline"
                   title="Email"
                   description={profile.email}

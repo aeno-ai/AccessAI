@@ -13,6 +13,7 @@ const { signTicket, verifyTicket } = require('../utils/authTickets');
 const { sendMail } = require('../utils/mailer');
 const { setPasswordVerified, passwordFingerprint } = require('../utils/passwords');
 const { removePushDevice } = require('./pushController');
+const { alertOtherDevices, deviceIdOf } = require('../utils/loginAlerts');
 
 // One answer for every failed login (no account, no password yet, wrong
 // password), so it can't be used to probe which emails exist — but it says
@@ -178,7 +179,9 @@ const login = async (req, res, next) => {
     }
 
     recordUserActivity(req, { userId: user._id, type: 'login.success', method: 'password' });
-    res.json({ token: signUserToken(user) });
+    // The account's other phones (and email) hear about it; this phone is
+    // told how many others are signed in (HANDOFF §56).
+    res.json({ token: signUserToken(user), otherDevices: alertOtherDevices(req, user) });
   } catch (error) {
     next(error);
   }
@@ -644,7 +647,26 @@ const logout = async (req, res, next) => {
   }
 };
 
+// "Secure my account" → "Sign out other phones": every other phone's login
+// stops working at once (verifyUserToken) and their push entries go; this
+// phone gets a fresh token. Whole seconds, like a token's iat, so the new
+// token (same second) still passes.
+const signOutOthers = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ message: 'Account not found' });
+    const here = deviceIdOf(req);
+    user.sessionsRevokedAt = new Date(Math.floor(Date.now() / 1000) * 1000 - 1);
+    user.pushTokens = (user.pushTokens ?? []).filter((entry) => here && entry.deviceId === here);
+    await user.save();
+    res.json({ token: signUserToken(user), message: 'Other phones are signed out.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
+  signOutOthers,
   register,
   login,
   logout,
