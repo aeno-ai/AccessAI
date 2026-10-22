@@ -1,0 +1,28 @@
+# What EAS uploads for an app build. EAS archives the whole repository, and
+# while this file exists it is used INSTEAD of .gitignore for that upload —
+# without it the archive was 911 MB. The app needs only frontend/.
+/*
+!/frontend
+
+/frontend/node_modules
+/frontend/android
+/frontend/ios
+/frontend/dist
+/frontend/web-build
+/frontend/.expo
+/frontend/modules/*/android/build
+/frontend/modules/*/android/.gradle
+/frontend/modules/*/android/.cxx
+
+# Secrets: EAS gets google-services.json from its GOOGLE_SERVICES_JSON file
+# variable, and the server address from eas.json's build profile.
+/frontend/.env
+/frontend/.env.*
+/frontend/google-services.json
+
+# Test data and scratch files the build doesn't use
+/frontend/scripts/fixtures
+/frontend/test.py
+
+*.log
+.DS_Store

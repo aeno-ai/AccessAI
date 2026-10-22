@@ -13,6 +13,9 @@
     },
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://accessai-0kcn.onrender.com/api"
+      },
       "android": {
         "buildType": "apk"
       }
