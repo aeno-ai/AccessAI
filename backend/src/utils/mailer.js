@@ -10,13 +10,45 @@ const nodemailer = require('nodemailer');
 // Optional: SMTP_HOST, SMTP_PORT (465 = TLS from the start, anything else
 // upgrades with STARTTLS) and MAIL_FROM (defaults to SMTP_USER).
 //
-// Without SMTP_USER/SMTP_PASS, development servers print each email to
-// this console instead of sending it, so sign-up can be tested with no
-// email account at all. Production refuses.
+// Hosts that block the SMTP ports (Render's free plan blocks 25/465/587)
+// can send through Brevo's web API instead, over normal HTTPS. Set
+//
+//   BREVO_API_KEY=xkeysib-...
+//   MAIL_FROM=AccessAI <you@gmail.com>   (a sender verified in Brevo)
+//
+// and Brevo is used instead of SMTP.
+//
+// Without either, development servers print each email to this console
+// instead of sending it, so sign-up can be tested with no email account at
+// all. Production refuses.
 
 let transporter = null;
 
-const isConfigured = () => Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+const BREVO_URL = 'https://api.brevo.com/v3';
+const usesBrevo = () => Boolean(process.env.BREVO_API_KEY);
+const isConfigured = () => usesBrevo() || Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+
+// "AccessAI <you@gmail.com>", "AccessAI you@gmail.com" or "you@gmail.com"
+// → { name, email }.
+function senderFrom(text = '') {
+  const email = (/[^\s<>]+@[^\s<>]+/.exec(text) || [''])[0];
+  const name = text.replace(email, '').replace(/[<>]/g, '').trim();
+  return { name: name || 'AccessAI', email };
+}
+
+async function brevoRequest(path, options = {}) {
+  const response = await fetch(`${BREVO_URL}${path}`, {
+    ...options,
+    headers: { 'api-key': process.env.BREVO_API_KEY, accept: 'application/json', 'content-type': 'application/json' },
+    // Same idea as the SMTP timeouts below: never hang on a bad network.
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw Object.assign(new Error(`Brevo ${response.status}: ${body.message || response.statusText}`), { status: response.status });
+  }
+  return response.json().catch(() => ({}));
+}
 
 function getTransporter() {
   if (!transporter) {
@@ -43,9 +75,22 @@ function getTransporter() {
 async function sendMail({ to, subject, text }) {
   if (!isConfigured()) {
     if (process.env.NODE_ENV === 'production') {
-      throw new Error('Email is not configured: set SMTP_USER and SMTP_PASS');
+      throw new Error('Email is not configured: set BREVO_API_KEY, or SMTP_USER and SMTP_PASS');
     }
     console.log(`[mailer] SMTP not configured — not sent.\n  To: ${to}\n  Subject: ${subject}\n  ${text}`);
+    return;
+  }
+
+  if (usesBrevo()) {
+    await brevoRequest('/smtp/email', {
+      method: 'POST',
+      body: JSON.stringify({
+        sender: senderFrom(process.env.MAIL_FROM || process.env.SMTP_USER),
+        to: [{ email: to }],
+        subject,
+        textContent: text,
+      }),
+    });
     return;
   }
 
@@ -67,6 +112,16 @@ async function checkMailLogin() {
     return;
   }
   const started = Date.now();
+  if (usesBrevo()) {
+    try {
+      await brevoRequest('/account');
+      console.log(`[mail] Brevo key OK (${((Date.now() - started) / 1000).toFixed(1)} s)`);
+    } catch (error) {
+      const hint = error.status === 401 ? ' — the API key was refused (deleted or mistyped)' : '';
+      console.error(`[mail] Brevo check FAILED: ${error.message}${hint}`);
+    }
+    return;
+  }
   try {
     await getTransporter().verify();
     console.log(`[mail] Gmail login OK (${((Date.now() - started) / 1000).toFixed(1)} s)`);
