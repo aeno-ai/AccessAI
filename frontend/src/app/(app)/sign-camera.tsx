@@ -169,7 +169,7 @@ function SignCamera() {
           ) : null}
         </View>
       ) : (
-        <Text style={styles.hint}>Sign one word after another. When you pause, AccessAI says it out loud as a sentence.</Text>
+        <Text style={styles.hint}>Sign one word after another. Pause for a few seconds, or tap Say it now, and AccessAI says it out loud.</Text>
       )}
 
       {said && translation ? (

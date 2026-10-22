@@ -18,8 +18,10 @@ import {
 } from '@/hooks/use-sign-recognition';
 import { announce } from '@/utils/a11y';
 
-// After signing stops for this long, the words become a sentence.
-const SENTENCE_PAUSE_MS = 2500;
+// After signing stops for this long, the words become a sentence. 2.5 s
+// spoke before people were done (a look at the screen, thinking of the next
+// sign); "Say it now" / "Done" finishes sooner.
+const SENTENCE_PAUSE_MS = 4000;
 
 type SignPanelProps = {
   /** A recognized word (or letter, when reading letters), for the message box. */
@@ -78,6 +80,13 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords, size = 'n
     pauseTimer.current = setTimeout(() => onPause(prefs.signLanguage, unit), SENTENCE_PAUSE_MS);
   };
 
+  // "Say it now" / "Done": the signer is finished — no waiting for the pause.
+  const finishNow = () => {
+    clearTimeout(pauseTimer.current);
+    setChoices([]);
+    onPause(prefs.signLanguage, unit);
+  };
+
   const handle = (event: SignEvent) => {
     if (event.type === 'word') {
       setChoices([]);
@@ -86,7 +95,9 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords, size = 'n
       Vibration.vibrate(40);
       scheduleSentence();
     } else if (event.type === 'unsure') {
-      // The model isn't sure: show its best guesses to pick from.
+      // The model isn't sure: show its best guesses to pick from. No sentence
+      // while they're up — picking one (or signing again) restarts the wait.
+      clearTimeout(pauseTimer.current);
       setChoices(event.top5.slice(0, 5).map((guess) => guess.label));
       announce('Not sure which sign. Pick one of the suggestions, or sign it again.');
     } else if (event.type === 'hint') {
@@ -230,6 +241,12 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords, size = 'n
             <Text style={styles.secondaryText}>{unit === 'letters' ? 'Undo last letter' : 'Undo last word'}</Text>
           </Pressable>
         ) : null}
+        {pendingWords > 0 ? (
+          <Pressable style={styles.primaryRow} onPress={finishNow} accessibilityRole="button">
+            <Ionicons name={size === 'full' ? 'volume-high-outline' : 'checkmark'} size={18} color={colors.onPrimary} />
+            <Text style={styles.primaryText}>{size === 'full' ? 'Say it now' : 'Done'}</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -350,6 +367,16 @@ const makeStyles = (t: AppTheme) =>
     primary: {
       minHeight: 44,
       paddingHorizontal: 18,
+      borderRadius: 22,
+      backgroundColor: t.colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    primaryRow: {
+      flexDirection: 'row',
+      gap: 6,
+      minHeight: 44,
+      paddingHorizontal: 16,
       borderRadius: 22,
       backgroundColor: t.colors.primary,
       alignItems: 'center',
