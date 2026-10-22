@@ -10,18 +10,20 @@ const { usableFilter } = require('../utils/accountState');
 // (utils/accountState.js). Missing fields count as fine, like protect().
 const usableAccount = () => ({ ...usableFilter(), emailVerified: { $ne: false } });
 
-const PUBLIC_FIELDS = 'name firstName friendNote';
+const PUBLIC_FIELDS = 'name firstName friendNote role showPwdTag';
 
 const isRequester = (friendship, userId) => String(friendship.requester) === String(userId);
 const otherIdOf = (friendship, userId) => (isRequester(friendship, userId) ? friendship.recipient : friendship.requester);
 
-// What a friend's app may know about someone: their name and the note they
-// chose to share — never their email, role or anything else.
+// What a friend's app may know about someone: their name, the note they
+// chose to share and — for PWD accounts that leave it on — a "PWD" tag
+// (owner, HANDOFF §56). Never their email, the raw role or anything else.
 const publicProfile = (user) => ({
   userId: String(user._id),
   name: user.name,
   firstName: user.firstName || user.name?.split(' ')[0] || '',
   note: user.friendNote || '',
+  pwd: user.role === 'pwd' && user.showPwdTag !== false,
 });
 
 // Your friend code (made the first time) and the note friends see.

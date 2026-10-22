@@ -136,6 +136,7 @@ const updateMeValidators = [
     .trim()
     .isLength({ max: 80 })
     .withMessage('The note can be up to 80 characters'),
+  body('showPwdTag').optional().isBoolean().withMessage('That setting must be on or off'),
 ];
 
 // "Change password" in Edit profile: the current password, or (accounts

@@ -81,6 +81,9 @@ const userSchema = new mongoose.Schema({
   // Optional, written by the user, shown to their friends — e.g. "I'm
   // Deaf, please type". Never filled in automatically.
   friendNote: { type: String, trim: true, maxlength: 80 },
+  // PWD accounts: show friends a small "PWD" tag next to the name. On unless
+  // the person turns it off in Edit profile (HANDOFF §56).
+  showPwdTag: { type: Boolean, default: true },
   // Where to send push notifications (friends' SOS alerts and messages
   // while AccessAI is closed): one Expo push token per phone the user is
   // signed in on. deviceId is a random id the app made for that phone, so

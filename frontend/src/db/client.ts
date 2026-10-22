@@ -53,7 +53,8 @@ async function migrate(db: SQLiteDatabase) {
       last_body TEXT,
       last_kind TEXT,
       last_from_me INTEGER,
-      last_at INTEGER
+      last_at INTEGER,
+      pwd INTEGER NOT NULL DEFAULT 0
     );
 
     -- Online chats with friends (see directMessages.ts). Messages written
@@ -87,6 +88,12 @@ async function migrate(db: SQLiteDatabase) {
   // Phones that had these tables before conversations were kept per
   // account (HANDOFF §20): add the column. Their rows have no account yet;
   // the next account to sign in adopts them (adoptUnowned in conversations.ts).
+  // Phones from before the PWD tag (HANDOFF §56): add the column.
+  const friendColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(friends)');
+  if (!friendColumns.some((column) => column.name === 'pwd')) {
+    await db.execAsync('ALTER TABLE friends ADD COLUMN pwd INTEGER NOT NULL DEFAULT 0');
+  }
+
   for (const table of ['conversations', 'pending_deletions']) {
     const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
     if (!columns.some((column) => column.name === 'account_id')) {

@@ -6,6 +6,7 @@ import { apiFetch } from '@/api/apiClient';
 import { Composer, type ComposerHandle } from '@/components/conversation/Composer';
 import { MessageBubble } from '@/components/conversation/MessageBubble';
 import { IconButton } from '@/components/ui/IconButton';
+import { PwdTag } from '@/components/ui/PwdTag';
 import { KeyboardAvoider } from '@/components/ui/KeyboardAvoider';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -247,11 +248,14 @@ export default function FriendChatScreen() {
             style={styles.headerText}
             accessible
             accessibilityRole="header"
-            accessibilityLabel={`Chat with ${friend?.name ?? name}. ${friend?.online ? 'Online' : 'Offline'}${friend?.note ? `. Note: ${friend.note}` : ''}`}
+            accessibilityLabel={`Chat with ${friend?.name ?? name}${friend?.pwd ? ', PWD' : ''}. ${friend?.online ? 'Online' : 'Offline'}${friend?.note ? `. Note: ${friend.note}` : ''}`}
           >
-            <Text style={styles.headerName} numberOfLines={1}>
-              {friend?.name ?? name}
-            </Text>
+            <View style={styles.headerNameRow}>
+              <Text style={styles.headerName} numberOfLines={1}>
+                {friend?.name ?? name}
+              </Text>
+              {friend?.pwd ? <PwdTag /> : null}
+            </View>
             <Text style={styles.headerMeta} numberOfLines={2}>
               {friend?.online ? '● Online' : 'Offline'}
               {friend?.note ? ` · ${friend.note}` : ''}
@@ -328,7 +332,13 @@ const makeStyles = (t: AppTheme) =>
       flex: 1,
       marginHorizontal: 4,
     },
+    headerNameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
     headerName: {
+      flexShrink: 1,
       fontSize: t.font(17),
       fontWeight: t.weight('800'),
       color: t.colors.textPrimary,

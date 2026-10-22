@@ -7,6 +7,7 @@ import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { IconButton } from '@/components/ui/IconButton';
 import { KeyboardAvoider } from '@/components/ui/KeyboardAvoider';
 import { SectionHeader, SettingRow } from '@/components/ui/SettingRow';
+import { ToggleRow } from '@/components/ui/ToggleRow';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
@@ -21,6 +22,8 @@ type Profile = {
   lastName: string;
   friendCode?: string;
   friendNote: string;
+  /** PWD accounts: friends see a "PWD" tag (HANDOFF §56). */
+  showPwdTag?: boolean;
   hasPassword?: boolean;
   /** Signs in with Google: no password to change (HANDOFF §56). */
   google?: boolean;
@@ -39,7 +42,8 @@ const MAX_NOTE_LENGTH = 80;
  * token the server answers with carries it.
  */
 export default function ProfileScreen() {
-  const { signIn } = useBootstrap();
+  const { signIn, role } = useBootstrap();
+  const isPwd = role === 'pwd';
   const { colors } = useAppTheme();
   const styles = useThemedStyles(makeStyles);
   const online = useIsOnline();
@@ -48,6 +52,7 @@ export default function ProfileScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [friendNote, setFriendNote] = useState('');
+  const [showPwdTag, setShowPwdTag] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -67,6 +72,7 @@ export default function ProfileScreen() {
           setFirstName(user.firstName);
           setLastName(user.lastName);
           setFriendNote(user.friendNote ?? '');
+          setShowPwdTag(user.showPwdTag !== false);
         })
         .catch(() => {
           if (!cancelled) setLoadError('Connect to the internet to see and edit your profile.');
@@ -82,7 +88,10 @@ export default function ProfileScreen() {
   const trimmedNote = friendNote.trim();
   const changed =
     profile !== null &&
-    (trimmedFirst !== profile.firstName || trimmedLast !== profile.lastName || trimmedNote !== (profile.friendNote ?? ''));
+    (trimmedFirst !== profile.firstName ||
+      trimmedLast !== profile.lastName ||
+      trimmedNote !== (profile.friendNote ?? '') ||
+      (isPwd && showPwdTag !== (profile.showPwdTag !== false)));
   const canSave = online && changed && Boolean(trimmedFirst) && Boolean(trimmedLast) && !saving;
 
   const save = async () => {
@@ -92,13 +101,14 @@ export default function ProfileScreen() {
     try {
       const data = await apiFetch<UpdateResponse>('/auth/me', {
         method: 'PATCH',
-        body: JSON.stringify({ firstName: trimmedFirst, lastName: trimmedLast, friendNote: trimmedNote }),
+        body: JSON.stringify({ firstName: trimmedFirst, lastName: trimmedLast, friendNote: trimmedNote, ...(isPwd ? { showPwdTag } : {}) }),
       });
       await signIn(data.token);
       setProfile(data.user);
       setFirstName(data.user.firstName);
       setLastName(data.user.lastName);
       setFriendNote(data.user.friendNote ?? '');
+      setShowPwdTag(data.user.showPwdTag !== false);
       setSaved(true);
       announce('Profile saved');
     } catch (e: unknown) {
@@ -157,6 +167,17 @@ export default function ProfileScreen() {
               <Text style={styles.hint}>
                 Shown to your friends next to your name. Only write what you&apos;re comfortable sharing.
               </Text>
+
+              {isPwd ? (
+                <View style={styles.card}>
+                  <ToggleRow
+                    label="Show that I'm a PWD to friends"
+                    description='Friends see a small "PWD" tag next to your name.'
+                    value={showPwdTag}
+                    onValueChange={setShowPwdTag}
+                  />
+                </View>
+              ) : null}
 
               {profile.friendCode ? (
                 <>

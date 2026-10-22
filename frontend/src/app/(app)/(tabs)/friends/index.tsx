@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { PwdTag } from '@/components/ui/PwdTag';
 import { PrimaryButton } from '@/components/auth/PrimaryButton';
 import { IconButton } from '@/components/ui/IconButton';
 import { ScreenShell } from '@/components/ui/ScreenShell';
@@ -26,6 +27,7 @@ function preview(friend: Friend): string {
 function spokenLabel(friend: Friend): string {
   return [
     friend.name,
+    friend.pwd ? 'PWD' : null,
     friend.online ? 'online' : 'offline',
     friend.unread > 0 ? `${friend.unread} new message${friend.unread === 1 ? '' : 's'}` : null,
     friend.inMySosCircle ? 'in your SOS circle' : null,
@@ -150,6 +152,7 @@ export default function FriendsScreen() {
                 <Text style={[styles.name, item.unread > 0 && styles.nameUnread]} numberOfLines={1}>
                   {item.name}
                 </Text>
+                {item.pwd ? <PwdTag /> : null}
                 {item.inMySosCircle ? (
                   <View style={styles.sosBadge}>
                     <Ionicons name="shield-checkmark" size={12} color={colors.dangerText} />

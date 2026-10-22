@@ -11,6 +11,8 @@ export type Friend = {
   inMySosCircle: boolean;
   /** They put you in theirs. */
   inTheirSosCircle: boolean;
+  /** A PWD account that shows friends the "PWD" tag (HANDOFF §56). */
+  pwd?: boolean;
   online: boolean;
   unread: number;
   lastMessage: { body: string; kind: string; fromMe: boolean; createdAt: number } | null;
@@ -31,6 +33,7 @@ type FriendRow = {
   last_kind: string | null;
   last_from_me: number | null;
   last_at: number | null;
+  pwd: number | null;
 };
 
 function toFriend(row: FriendRow): Friend {
@@ -41,6 +44,7 @@ function toFriend(row: FriendRow): Friend {
     note: row.note,
     inMySosCircle: row.in_my_sos === 1,
     inTheirSosCircle: row.in_their_sos === 1,
+    pwd: row.pwd === 1,
     online: row.online === 1,
     unread: row.unread,
     lastMessage:
@@ -66,8 +70,8 @@ export async function replaceCachedFriends(friends: Friend[]): Promise<void> {
     await db.runAsync('DELETE FROM friends');
     for (const f of friends) {
       await db.runAsync(
-        `INSERT INTO friends (user_id, name, first_name, note, in_my_sos, in_their_sos, online, unread, last_body, last_kind, last_from_me, last_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO friends (user_id, name, first_name, note, in_my_sos, in_their_sos, online, unread, last_body, last_kind, last_from_me, last_at, pwd)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           f.userId,
           f.name,
@@ -81,6 +85,7 @@ export async function replaceCachedFriends(friends: Friend[]): Promise<void> {
           f.lastMessage?.kind ?? null,
           f.lastMessage ? (f.lastMessage.fromMe ? 1 : 0) : null,
           f.lastMessage?.createdAt ?? null,
+          f.pwd ? 1 : 0,
         ],
       );
     }

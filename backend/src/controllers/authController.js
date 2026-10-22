@@ -378,6 +378,8 @@ const profileOf = (user) => {
     // Shared to be added as a friend, and the optional note friends see.
     friendCode: user.friendCode,
     friendNote: user.friendNote || '',
+    // PWD accounts: whether friends see the "PWD" tag.
+    showPwdTag: user.showPwdTag !== false,
   };
 };
 
@@ -385,7 +387,7 @@ const getMe = async (req, res, next) => {
   try {
     // protect() already confirmed the account exists and is active.
     const user = await User.findById(req.user.userId).select(
-      'email name firstName lastName role password googleId friendCode friendNote termsVersion',
+      'email name firstName lastName role password googleId friendCode friendNote showPwdTag termsVersion',
     );
     if (!user) return res.status(404).json({ message: 'Account not found' });
     user.friendCode = await ensureFriendCode(user);
@@ -419,7 +421,7 @@ const getMe = async (req, res, next) => {
 // (updateMeValidators). An empty note removes it.
 const updateMe = async (req, res, next) => {
   try {
-    const { firstName, lastName, friendNote } = req.body;
+    const { firstName, lastName, friendNote, showPwdTag } = req.body;
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ message: 'Account not found' });
 
@@ -429,6 +431,7 @@ const updateMe = async (req, res, next) => {
     if (friendNote !== undefined) {
       user.friendNote = friendNote || undefined;
     }
+    if (typeof showPwdTag === 'boolean') user.showPwdTag = showPwdTag;
     await user.save();
 
     res.json({ token: signUserToken(user), user: profileOf(user) });

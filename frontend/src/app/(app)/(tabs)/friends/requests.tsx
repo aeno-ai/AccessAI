@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { apiFetch } from '@/api/apiClient';
 import { IconButton } from '@/components/ui/IconButton';
+import { PwdTag } from '@/components/ui/PwdTag';
 import { SectionHeader } from '@/components/ui/SettingRow';
 import { Spacing } from '@/constants/theme';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
@@ -50,8 +51,11 @@ export default function FriendRequestsScreen() {
       {requests.incoming.length > 0 ? <SectionHeader title="Waiting for you" /> : null}
       {requests.incoming.map((request) => (
         <View key={request.id} style={styles.card}>
-          <View style={styles.cardText} accessible accessibilityLabel={`${request.person.name} wants to be friends.${request.person.note ? ` Note: ${request.person.note}` : ''}`}>
-            <Text style={styles.name}>{request.person.name}</Text>
+          <View style={styles.cardText} accessible accessibilityLabel={`${request.person.name}${request.person.pwd ? ', PWD' : ''} wants to be friends.${request.person.note ? ` Note: ${request.person.note}` : ''}`}>
+            <View style={styles.nameRow}>
+              <Text style={styles.name}>{request.person.name}</Text>
+              {request.person.pwd ? <PwdTag /> : null}
+            </View>
             <Text style={styles.meta}>wants to be friends</Text>
             {request.person.note ? <Text style={styles.noteText}>“{request.person.note}”</Text> : null}
           </View>
@@ -76,7 +80,10 @@ export default function FriendRequestsScreen() {
       {requests.outgoing.map((request) => (
         <View key={request.id} style={styles.card}>
           <View style={styles.cardText} accessible accessibilityLabel={`Request sent to ${request.person.name}, waiting for them to accept`}>
-            <Text style={styles.name}>{request.person.name}</Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.name}>{request.person.name}</Text>
+              {request.person.pwd ? <PwdTag /> : null}
+            </View>
             <Text style={styles.meta}>waiting for them to accept</Text>
           </View>
           <IconButton
@@ -118,6 +125,11 @@ const makeStyles = (t: AppTheme) =>
     },
     cardText: {
       flex: 1,
+    },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
     },
     name: {
       fontSize: t.font(16),

@@ -25,7 +25,7 @@ import { isStale, keepIfSame } from '@/utils/cache';
 
 export type FriendRequest = {
   id: string;
-  person: { userId: string; name: string; firstName: string; note: string };
+  person: { userId: string; name: string; firstName: string; note: string; pwd?: boolean };
   createdAt: number;
 };
 
