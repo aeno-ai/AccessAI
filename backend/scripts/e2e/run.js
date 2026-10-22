@@ -290,11 +290,19 @@ async function aiSuite() {
   h.check('over 300 characters → 400', r.status === 400, r);
   r = await h.api('POST', '/assistant/polish', a.token, { text: 'ME GO STORE TOMORROW', kind: 'gloss' });
   h.check('sign words become a sentence', r.status === 200 && typeof r.data.text === 'string' && r.data.text.length > 5, r.data);
+  // The sign translator (HANDOFF §52 E).
+  // (Into Filipino the app uses its own word list — the small AI's Tagalog isn't reliable.)
+  r = await h.api('POST', '/assistant/polish', a.token, { text: 'Salamat, kita tayo bukas.', kind: 'translate', language: 'en' });
+  h.check('Filipino signed text translates into English', r.status === 200 && /thank|tomorrow/i.test(r.data.text), r.data);
+  r = await h.api('POST', '/assistant/polish', a.token, { text: 'hello', kind: 'translate', language: 'ja' });
+  h.check('…only into English or Filipino → 400', r.status === 400, r);
   r = await h.api('GET', '/sign/models', a.token);
   h.check('sign models listed', r.status === 200 && Array.isArray(r.data.models), r.data);
+  h.check('all four sign models are installed (2026-10-21)', r.data.models?.filter((m) => m.available).length === 4, r.data.models);
 
   r = await h.api('POST', '/sign/session', a.token, { language: 'fsl', unit: 'letters' });
-  h.check('letters not installed yet → 409 with a plain message', r.status === 409 && r.data.code === 'SIGN_MODEL_MISSING', r);
+  h.check('a letters session starts (letters installed)', r.status === 201 && /^[a-f0-9]{32}$/.test(r.data.sessionId), r);
+  if (r.data.sessionId) await h.api('DELETE', `/sign/session/${r.data.sessionId}`, a.token);
   r = await h.api('POST', '/sign/session', a.token, { language: 'fsl', unit: 'words' });
   h.check('sign session starts', r.status === 201 && /^[a-f0-9]{32}$/.test(r.data.sessionId), r);
   const sessionId = r.data.sessionId;
@@ -572,7 +580,7 @@ async function authSuite() {
 }
 
 async function adminSuite() {
-  console.log('\nadmin — suspend and lift, delete in 30 days, SOS and activity records, "Needs a look" (HANDOFF §41–§43)');
+  console.log('\nadmin — suspend and lift, delete in 30 days, SOS and activity records, Suspicious Activities (HANDOFF §41–§43, §52)');
   const boss = await h.makeAdmin('super_admin');
   const helper = await h.makeAdmin('admin');
   const pia = await h.makeUser('Pia');
@@ -680,23 +688,72 @@ async function adminSuite() {
   const changes = await AdminAuditLog.find({ targetId: pia.id, action: { $in: ['user.suspend', 'user.suspend.lift', 'user.delete.schedule', 'user.delete.cancel'] } }).lean();
   h.check('every suspend, lift, delete and cancel is in the admin log', changes.length === 4, changes.map((c) => c.action));
 
-  console.log('\nadmin — "Needs a look"');
+  console.log('\nadmin — Suspicious Activities');
   const rex = await h.makeUser('Rex');
   const ned = await h.makeUser('Ned');
-  await UserActivity.deleteMany({ ip: '203.0.113.9' });
+  const kim = await h.makeUser('Kim');
+  await UserActivity.deleteMany({ ip: { $in: ['203.0.113.9', '198.51.100.7'] } });
+  const at = (minutesAgo) => new Date(Date.now() - minutesAgo * 60 * 1000);
   await UserActivity.insertMany([
-    ...Array.from({ length: 10 }, () => ({ userId: rex.id, type: 'login.failed', reason: 'wrong password', ip: '203.0.113.9' })),
-    ...Array.from({ length: 9 }, () => ({ userId: ned.id, type: 'login.failed', reason: 'wrong password', ip: '203.0.113.9' })),
+    ...Array.from({ length: 10 }, (_, i) => ({ userId: rex.id, type: 'login.failed', reason: 'wrong password', ip: '203.0.113.9', createdAt: at(60 - i) })),
+    ...Array.from({ length: 9 }, (_, i) => ({ userId: ned.id, type: 'login.failed', reason: 'wrong password', ip: '203.0.113.9', createdAt: at(40 - i) })),
+    // Kim: 4 failures, a success, 4 more — never 5 in a row.
+    ...Array.from({ length: 4 }, (_, i) => ({ userId: kim.id, type: 'login.failed', reason: 'wrong password', ip: '198.51.100.7', createdAt: at(30 - i) })),
+    { userId: kim.id, type: 'login.success', ip: '198.51.100.7', createdAt: at(25) },
+    ...Array.from({ length: 4 }, (_, i) => ({ userId: kim.id, type: 'login.failed', reason: 'wrong password', ip: '198.51.100.7', createdAt: at(20 - i) })),
   ]);
   r = await h.adminApi('GET', '/review', helper);
   const rexItem = r.data.items?.find((item) => item.user?.id === rex.id);
-  h.check('10 failed logins in a day → the account needs a look', r.status === 200 && rexItem?.signs.some((s) => s.sign === 'failed_logins' && s.count === 10), r.data.items);
-  h.check('…9 does not', !r.data.items?.some((item) => item.user?.id === ned.id));
+  const nedItem = r.data.items?.find((item) => item.user?.id === ned.id);
+  const rexTotal = rexItem?.signs.find((s) => s.sign === 'failed_logins');
+  const rexStreak = rexItem?.signs.find((s) => s.sign === 'failed_logins_streak');
+  h.check('10 failed logins in a day → a "failed logins" flag', r.status === 200 && rexTotal?.count === 10, r.data.items);
+  h.check('…and 10 in a row → a "failed logins in a row" flag', rexStreak?.count === 10 && rexStreak.severity === 'high', rexStreak);
+  h.check('…with its evidence: first/last time, the address, the reason', Boolean(rexTotal?.firstAt && rexTotal?.lastAt) && rexTotal.addresses?.[0] === '203.0.113.9' && rexTotal.reasons?.[0] === 'wrong password', rexTotal);
+  h.check('the account is marked high severity', rexItem?.severity === 'high', rexItem);
+  h.check('9 in a row → only the "in a row" flag (not 10 in total yet)', nedItem?.signs.length === 1 && nedItem.signs[0].sign === 'failed_logins_streak' && nedItem.signs[0].count === 9, nedItem);
+  h.check('4, a successful login, 4 → no flag (never 5 in a row)', !r.data.items?.some((item) => item.user?.id === kim.id));
   h.check('…and 19 from one address does not flag the address yet', !r.data.items?.some((item) => item.ip === '203.0.113.9'));
+  h.check('the rules come with the answer', r.data.rules?.some((rule) => rule.id === 'failed_logins_streak' && rule.threshold === 5));
   await UserActivity.create({ type: 'login.failed', reason: 'no account with that email', ip: '203.0.113.9' });
   r = await h.adminApi('GET', '/review', helper);
-  h.check('20 from one address flags the address', r.data.items?.some((item) => item.ip === '203.0.113.9' && item.signs[0].count === 20), r.data.items);
-  await UserActivity.deleteMany({ ip: '203.0.113.9' });
+  const ipItem = r.data.items?.find((item) => item.ip === '203.0.113.9');
+  h.check('20 from one address flags the address', ipItem?.signs[0].count === 20, r.data.items);
+  h.check('…with how many accounts it tried', ipItem?.signs[0].accounts === 2, ipItem);
+  await h.sleep(200);
+  h.check('opening Suspicious Activities is in the admin log', (await AdminAuditLog.countDocuments({ adminId: helper.id, action: 'review.view' })) >= 2);
+  r = await h.adminRaw('GET', '/review/export.csv', helper);
+  h.check('Suspicious Activities download as CSV', r.status === 200 && /text\/csv/.test(r.type) && r.text.includes('failed_logins_streak'), r.status);
+  await UserActivity.deleteMany({ ip: { $in: ['203.0.113.9', '198.51.100.7'] } });
+
+  console.log('\nadmin — dashboard, date filters, CSV, the admin log');
+  for (const range of ['24h', '7d', '30d', '90d']) {
+    r = await h.adminApi('GET', `/dashboard?range=${range}`, helper);
+    const lengths = r.data?.series ? [r.data.series.signups.length, r.data.series.logins.success.length, r.data.series.sos.real.length] : [];
+    h.check(`dashboard ${range} → buckets and series line up`, r.status === 200 && lengths.every((n) => n === r.data.buckets.length) && r.data.buckets.length === { '24h': 24, '7d': 7, '30d': 30, '90d': 90 }[range], r.status);
+  }
+  r = await h.adminApi('GET', '/dashboard?range=7d', helper);
+  const dashKeys = allKeys(r.data);
+  h.check('the dashboard has KPIs, breakdowns and the busiest-hours grid', typeof r.data.kpis?.users === 'number' && Array.isArray(r.data.breakdowns?.appVersions) && r.data.heatmap?.length === 7 && r.data.heatmap[0].length === 24, r.data.kpis);
+  h.check('the dashboard never carries a place, location, message or text', !['location', 'lastLocation', 'place', 'message', 'body', 'latitude', 'longitude'].some((k) => dashKeys.has(k)), [...dashKeys]);
+  r = await h.adminApi('GET', '/dashboard?range=1y', helper);
+  h.check('an unknown dashboard range → 400', r.status === 400, r);
+  r = await h.adminApi('GET', '/activity?from=2026-13-01', helper);
+  h.check('a bad date → 400', r.status === 400, r);
+  r = await h.adminApi('GET', '/activity?from=2026-10-21&to=2026-10-01', helper);
+  h.check('a start after the end → 400', r.status === 400, r);
+  r = await h.adminApi('GET', '/sos?from=2000-01-01&to=2000-01-02', helper);
+  h.check('a date range with nothing in it → an empty list', r.status === 200 && r.data.total === 0, r.data);
+  r = await h.adminRaw('GET', '/activity/export.csv?type=login.failed', helper);
+  h.check('activity downloads as CSV with its headers', r.status === 200 && r.text.includes('Network address'), r.status);
+  r = await h.adminRaw('GET', '/sos/export.csv', helper);
+  h.check('the SOS CSV has no place, location or message column', r.status === 200 && !/place|location|message|latitude/i.test(r.text.split('\n')[0]), r.text.split('\n')[0]);
+  r = await h.adminApi('GET', '/audit', helper);
+  h.check('an admin cannot open the admin log (super admins only) → 403', r.status === 403, r);
+  r = await h.adminApi('GET', '/audit?action=review.view', boss);
+  h.check('a super admin sees the admin log, filtered', r.status === 200 && r.data.entries.length > 0 && r.data.entries.every((e) => e.action === 'review.view') && Boolean(r.data.entries[0].admin?.name), r.data);
+  r = await h.adminRaw('GET', '/audit/export.csv', boss);
+  h.check('the admin log downloads as CSV', r.status === 200 && r.text.includes('Admin email'), r.status);
 
   console.log('\nadmin — an admin deletion is erased when its day comes');
   r = await h.adminApi('POST', `/users/${pia.id}/deletion`, boss, { reason: 'Fake SOS alerts' });

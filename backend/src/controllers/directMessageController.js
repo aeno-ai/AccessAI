@@ -84,7 +84,7 @@ const sendMessage = async (req, res, next) => {
     if (isNew) {
       emitToUser(friendId, 'dm:new', { friendId: String(me), message: toClient(message, friendId) });
       // AccessAI isn't on the friend's screen: a phone notification instead.
-      if (!isForeground(friendId)) {
+      if (!(await isForeground(friendId))) {
         void pushToUsers([friendId], {
           title: req.user.firstName || 'New message',
           body: message.body.length > 120 ? `${message.body.slice(0, 117)}…` : message.body,

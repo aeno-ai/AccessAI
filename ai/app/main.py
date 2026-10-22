@@ -112,7 +112,7 @@ class InterpretRequest(BaseModel):
 
 class PolishRequest(BaseModel):
     text: str = Field(min_length=1, max_length=500)
-    kind: str = Field(pattern="^(message|gloss|spell)$")
+    kind: str = Field(pattern="^(message|gloss|spell|translate)$")
     language: str = Field(default="auto", pattern="^(en|fil|fsl|asl|auto)$")
 
 

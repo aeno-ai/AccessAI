@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { createTokenBucketLimiter } = require('./tokenBucket');
 const { recordLimitHit } = require('../utils/activityLog');
+const { SHARED, takeSharedToken, sharedStoreFor } = require('./sharedRateStores');
 
 // Every limiter answers with JSON { message } (an object, not a string —
 // express-rate-limit sends a plain string as an HTML page, which the app
@@ -10,9 +11,12 @@ const { recordLimitHit } = require('../utils/activityLog');
 // The app's limiters also note each refusal (at most once a minute per
 // person and limit) in the activity log, for the admin panel's "Needs a
 // look" list (HANDOFF.md §41). `name` is what the admin sees.
+// With several server copies (RATE_LIMIT_STORE=mongo, HANDOFF §52) each
+// limiter keeps its counts in MongoDB, shared by every copy.
 const limited = (name, options) =>
   rateLimit({
     ...options,
+    ...sharedStoreFor(name),
     handler: (req, res, _next, used) => {
       recordLimitHit(req, name);
       res.status(used.statusCode).json(used.message);
@@ -68,6 +72,7 @@ const generalLimiter = createTokenBucketLimiter({
   blockWindowMs: 60 * 1000,
   blockMs: 5 * 60 * 1000,
   keyGenerator: accountOrIp,
+  shared: SHARED ? takeSharedToken : null,
   onRefuse: (req) => recordLimitHit(req, 'general'),
   skip: (req) => OWN_LIMIT_PATHS.some((path) => req.path.startsWith(path)),
 });
@@ -77,6 +82,7 @@ const generalLimiter = createTokenBucketLimiter({
 // only failed guesses add up. This is per IP; the per-account lockout in
 // adminAuthController covers attackers who rotate IPs.
 const adminLoginLimiter = rateLimit({
+  ...sharedStoreFor('admin logins'),
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5,
   skipSuccessfulRequests: true,

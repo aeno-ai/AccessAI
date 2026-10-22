@@ -1,0 +1,6 @@
+# These run on Linux: keep Unix line endings even when checked out on Windows
+# (a Windows line ending breaks a shell script with "bad interpreter").
+*.sh text eol=lf
+*.service text eol=lf
+Caddyfile text eol=lf
+*.example text eol=lf

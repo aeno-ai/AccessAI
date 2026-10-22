@@ -1,0 +1,6 @@
+{
+ "input": "hand-21",
+ "segmentation": "hold",
+ "aspect_corrected": true,
+ "min_confidence": 0.55
+}

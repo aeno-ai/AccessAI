@@ -40,11 +40,13 @@ const corsOptions = allowedOrigins
     }
   : undefined;
 
-// The Cloudflare tunnel (and the admin panel's dev proxy) run on this same
-// computer and pass the visitor's real address along. Trusting only them
+// The tunnel (and the admin panel's dev proxy) run on this same computer
+// and pass the visitor's real address along. Trusting only them
 // ("loopback") lets the rate limits see real visitors instead of counting
-// everyone who comes through the tunnel as one.
-app.set('trust proxy', 'loopback');
+// everyone who comes through the tunnel as one. Behind a load balancer on
+// another machine, set TRUST_PROXY to its address or hop count (HANDOFF §52).
+const trustProxy = process.env.TRUST_PROXY ?? 'loopback';
+app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
 
 app.use(helmet());              // secure headers — from your security-layer discussion, baked in from line one
 app.use(cors(corsOptions));     // controls which origins can call this API
@@ -82,7 +84,10 @@ app.get('/api/health', async (req, res) => {
   } catch {
     // Not running or still loading: reported as false.
   }
-  res.status(database ? 200 : 503).json({ status: database ? 'ok' : 'unavailable', database, ai });
+  // Shutting down (server.js): not ready for new requests any more.
+  const draining = app.locals.draining === true;
+  const ok = database && !draining;
+  res.status(ok ? 200 : 503).json({ status: ok ? 'ok' : draining ? 'draining' : 'unavailable', database, ai });
 });
 
 // Easter egg route to see if the server is running

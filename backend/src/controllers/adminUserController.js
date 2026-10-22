@@ -279,4 +279,5 @@ module.exports = {
   liftSuspension,
   scheduleDeletion,
   cancelDeletion,
+  STATUS_FILTERS,
 };

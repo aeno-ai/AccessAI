@@ -4,6 +4,7 @@ import { useCameraPermission } from 'react-native-vision-camera';
 import { useIsFocused } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SignCamera } from '@/components/sign/SignCamera';
+import { SignHelpSheet } from '@/components/sign/SignHelpSheet';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useScreenReader } from '@/hooks/use-screen-reader';
@@ -44,6 +45,7 @@ export function SignCheck({ course, sign, onPass, onSkip, onUnavailable, skipLab
   const { hasPermission, requestPermission, canRequestPermission } = useCameraPermission();
   const [result, setResult] = useState<Result | null>(null);
   const [hint, setHint] = useState('');
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const displayOf = (label: string) =>
     allSigns(course).find((s) => normalizeLabel(s.label) === normalizeLabel(label))?.display ?? label;
@@ -173,6 +175,13 @@ export function SignCheck({ course, sign, onPass, onSkip, onUnavailable, skipLab
           </Pressable>
         ) : null}
       </View>
+      {!result ? (
+        <Pressable style={styles.helpLink} onPress={() => setHelpOpen(true)} accessibilityRole="button">
+          <Ionicons name="help-circle-outline" size={20} color={colors.primary} />
+          <Text style={styles.helpLinkText}>How to sign for the camera</Text>
+        </Pressable>
+      ) : null}
+      <SignHelpSheet visible={helpOpen} unit="words" onClose={() => setHelpOpen(false)} />
     </View>
   );
 }
@@ -181,6 +190,19 @@ const makeStyles = (t: AppTheme) =>
   StyleSheet.create({
     card: {
       gap: 10,
+    },
+    helpLink: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      minHeight: 44,
+    },
+    helpLinkText: {
+      fontSize: t.font(15),
+      fontWeight: t.weight('700'),
+      color: t.colors.primary,
+      textDecorationLine: 'underline',
     },
     cameraWrap: {
       width: '100%',

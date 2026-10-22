@@ -1,0 +1,20 @@
+# The backend as several copies (npm run start:cluster), started at boot and
+# restarted if it stops. setup.sh fills in __APP_DIR__ and __USER__.
+[Unit]
+Description=AccessAI backend (cluster)
+After=network-online.target accessai-ai.service
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__APP_DIR__/backend
+# backend/.env holds the settings and secrets (never in git).
+ExecStart=/usr/bin/node src/cluster.js
+Restart=always
+RestartSec=5
+# Ctrl+C equivalent: each copy finishes what it's doing first (server.js).
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

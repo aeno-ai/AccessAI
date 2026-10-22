@@ -10,7 +10,8 @@ export type Permission =
   | 'activity:read'
   | 'sos:read'
   | 'admins:read'
-  | 'admins:manage';
+  | 'admins:manage'
+  | 'audit:read';
 
 export type Admin = {
   id: string;
@@ -128,12 +129,108 @@ export type SosListResponse = {
   counts?: { real: number; test: number };
 };
 
-export type ReviewSign = 'failed_logins' | 'failed_logins_ip' | 'limit_hits' | 'real_sos' | 'friend_requests';
+// Suspicious Activities (HANDOFF.md §43, §52): the rules and their evidence.
+export type ReviewSign =
+  | 'failed_logins_streak'
+  | 'failed_logins'
+  | 'failed_logins_ip'
+  | 'limit_hits'
+  | 'real_sos'
+  | 'friend_requests';
+
+export type Severity = 'high' | 'medium' | 'low';
+
+export type ReviewFlag = {
+  sign: ReviewSign;
+  count: number;
+  threshold: number;
+  severity: Severity;
+  firstAt: string;
+  lastAt: string;
+  addresses?: string[];
+  addressCount?: number;
+  reasons?: string[];
+  limiters?: string[];
+  /** failed_logins_ip: how many different accounts were tried. */
+  accounts?: number;
+  /** real_sos: how many no one answered. */
+  unanswered?: number;
+  /** friend_requests: how many were accepted. */
+  accepted?: number;
+};
 
 export type ReviewItem = {
   user: (NonNullable<PersonRef> & { role: UserType; status: UserStatus }) | null;
   ip: string | null;
-  signs: { sign: ReviewSign; count: number; threshold: number }[];
+  severity: Severity;
+  lastAt: string;
+  signs: ReviewFlag[];
 };
 
-export type ReviewResponse = { since: string; items: ReviewItem[] };
+export type ReviewRule = { id: ReviewSign; threshold: number; severity: Severity };
+
+export type ReviewResponse = { since: string; rules: ReviewRule[]; items: ReviewItem[] };
+
+// The admin log (super admins only).
+export type AuditEntry = {
+  id: string;
+  at: string;
+  admin: { id: string; email: string | null; name: string | null } | null;
+  email: string | null;
+  action: string;
+  success: boolean;
+  target: { type: 'user' | 'admin' | null; id: string; name: string | null } | null;
+  ip: string | null;
+  details: Record<string, unknown> | null;
+};
+
+export type AuditListResponse = { entries: AuditEntry[]; total: number; page: number; pages: number; actions: string[] };
+
+// The dashboard.
+export type DashboardRange = '24h' | '7d' | '30d' | '90d';
+export type Breakdown = { key: string; count: number }[];
+
+export type DashboardResponse = {
+  range: DashboardRange;
+  unit: 'hour' | 'day';
+  since: string;
+  generatedAt: string;
+  activityRetentionDays: number;
+  buckets: string[];
+  kpis: {
+    users: number;
+    pwd: number;
+    nonPwd: number;
+    newSignups: number;
+    activeUsers: number;
+    loginsOk: number;
+    loginsFailed: number;
+    loginsRefused: number;
+    sosReal: number;
+    sosTest: number;
+    sosUnanswered: number;
+    sosMedianAnswerMinutes: number | null;
+    suspicious: number;
+    suspiciousHigh: number;
+    adminActions: number;
+  };
+  series: {
+    logins: { success: number[]; failed: number[]; refused: number[] };
+    signups: number[];
+    sos: { real: number[]; test: number[] };
+    limitHits: number[];
+    learn: { fsl: number[]; asl: number[] };
+    messages: number[];
+    adminActions: number[];
+  };
+  breakdowns: {
+    userStatus: Breakdown;
+    appVersions: Breakdown;
+    failedReasons: Breakdown;
+    limiters: Breakdown;
+    sosTriggers: Breakdown;
+    sosOutcomes: Breakdown;
+  };
+  /** 7 rows (Sunday first) × 24 hours, Manila time. */
+  heatmap: number[][];
+};

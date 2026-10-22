@@ -3,6 +3,7 @@ const { ADMIN_ROLES } = require('../constants/adminRoles');
 const { strongPassword } = require('./authValidators');
 const { GENERIC, strictBoolean } = require('./common');
 const { ACTIVITY_TYPES } = require('../models/UserActivity');
+const { manilaDayStart } = require('../utils/dateRange');
 
 const emailRules = (field = 'email') =>
   body(field)
@@ -99,19 +100,39 @@ const deletionValidators = [idParam, reasonRule()];
 
 const userRecordsValidators = [idParam, ...pageRules()];
 
-// ============== /api/admin/activity, /sos, /review ==============
+// ============== /api/admin/activity, /sos, /review, /audit, /dashboard ==============
+
+// From/to days (YYYY-MM-DD, Manila days, both included; HANDOFF.md §52).
+const dayRules = () => [
+  singleQuery('from').custom((value) => manilaDayStart(value) !== null).withMessage('Pick a valid start date'),
+  singleQuery('to').custom((value) => manilaDayStart(value) !== null).withMessage('Pick a valid end date'),
+  query().custom((value) => !value?.from || !value?.to || value.from <= value.to).withMessage('The start date must be on or before the end date'),
+];
 
 const activityListValidators = [
   singleQuery('type').isIn(ACTIVITY_TYPES).withMessage(GENERIC),
   singleQuery('ip').trim().isLength({ min: 1, max: 100 }).withMessage(GENERIC),
+  ...dayRules(),
   ...pageRules(),
 ];
 
 const sosListValidators = [
   singleQuery('kind').isIn(['real', 'test']).withMessage(GENERIC),
   singleQuery('unanswered').isIn(['true', 'false']).withMessage(GENERIC),
+  ...dayRules(),
   ...pageRules(),
 ];
+
+// The admin log (super admins only).
+const auditListValidators = [
+  singleQuery('action').trim().isLength({ min: 1, max: 100 }).withMessage(GENERIC),
+  singleQuery('adminId').isMongoId().withMessage(GENERIC),
+  singleQuery('success').isIn(['true', 'false']).withMessage(GENERIC),
+  ...dayRules(),
+  ...pageRules(),
+];
+
+const dashboardValidators = [singleQuery('range').isIn(['24h', '7d', '30d', '90d']).withMessage(GENERIC)];
 
 // ============== /api/admin/admins ==============
 
@@ -152,6 +173,8 @@ module.exports = {
   userRecordsValidators,
   activityListValidators,
   sosListValidators,
+  auditListValidators,
+  dashboardValidators,
   createAdminValidators,
   updateAdminValidators,
   resetAdminPasswordValidators,

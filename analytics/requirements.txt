@@ -1,0 +1,2 @@
+# Only for the Spark log-analytics job (spark_job.py). Needs Java 17.
+pyspark>=3.5,<4.1

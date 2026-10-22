@@ -1,0 +1,22 @@
+# The AI service's packages on the deployed server (HANDOFF.md §53) — the
+# same versions as requirements.txt, without MediaPipe and OpenCV: sign
+# language is read on the phones, so the server's sign sessions aren't used
+# (they import those two only when a session starts), and MediaPipe 0.10.14
+# may have no ARM Linux build. Laya (commands, sentences, translation) needs
+# only these.
+
+# Web server
+fastapi==0.142.2
+uvicorn==0.54.0
+pydantic==2.13.5
+httpx==0.28.1
+
+# Vector database (Laya's example sentences)
+chromadb==1.5.9
+opentelemetry-proto==1.15.0
+opentelemetry-exporter-otlp-proto-grpc==1.15.0
+protobuf==4.25.9
+
+# Reading the sign model files (for /sign/models)
+numpy==2.5.3
+h5py==3.16.0

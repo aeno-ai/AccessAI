@@ -17,6 +17,8 @@ const PERMISSIONS = {
   SOS_READ: 'sos:read',
   ADMINS_READ: 'admins:read',
   ADMINS_MANAGE: 'admins:manage',
+  // The admin log: every admin's logins and actions (HANDOFF.md §52).
+  AUDIT_READ: 'audit:read',
 };
 
 // The single source of truth for "who can do what". Routes check a
@@ -39,6 +41,7 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.SOS_READ,
     PERMISSIONS.ADMINS_READ,
     PERMISSIONS.ADMINS_MANAGE,
+    PERMISSIONS.AUDIT_READ,
   ],
 };
 

@@ -31,4 +31,7 @@ learnCompletionSchema.index({ userId: 1, clientId: 1 }, { unique: true });
 // The weekly leaderboard: my friends' completions since Monday.
 learnCompletionSchema.index({ userId: 1, completedAt: 1 });
 
+// Admin dashboard and Suspicious Activities: counts over a date range (HANDOFF.md §52).
+learnCompletionSchema.index({ completedAt: -1 });
+
 module.exports = mongoose.model('LearnCompletion', learnCompletionSchema);

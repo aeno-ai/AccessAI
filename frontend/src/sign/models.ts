@@ -7,7 +7,7 @@ import { SignNet, type NetSpec } from './net';
 /**
  * The sign models that come with the app (assets/sign-models/, made by
  * ai/scripts/export_sign_model.py). They run on the phone, offline.
- * Letters: none yet (HANDOFF.md §49 step 6).
+ * Words and letters for FSL and ASL (all four retrained 2026-10-19/21, HANDOFF.md §52).
  */
 type Bundled = {
   spec: NetSpec;
@@ -30,6 +30,20 @@ const BUNDLED: Partial<Record<`${SignLanguage}/${SignUnit}`, Bundled>> = {
     weights: require('../../assets/sign-models/asl/words/model.bin'),
     labels: require('../../assets/sign-models/asl/words/labels.json'),
     meta: require('../../assets/sign-models/asl/words/meta.json'),
+  },
+  'fsl/letters': {
+    spec: require('../../assets/sign-models/fsl/letters/model.json'),
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- a bundled file (metro asset)
+    weights: require('../../assets/sign-models/fsl/letters/model.bin'),
+    labels: require('../../assets/sign-models/fsl/letters/labels.json'),
+    meta: require('../../assets/sign-models/fsl/letters/meta.json'),
+  },
+  'asl/letters': {
+    spec: require('../../assets/sign-models/asl/letters/model.json'),
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- a bundled file (metro asset)
+    weights: require('../../assets/sign-models/asl/letters/model.bin'),
+    labels: require('../../assets/sign-models/asl/letters/labels.json'),
+    meta: require('../../assets/sign-models/asl/letters/meta.json'),
   },
 };
 

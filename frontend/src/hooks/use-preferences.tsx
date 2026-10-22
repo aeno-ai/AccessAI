@@ -97,6 +97,8 @@ export type Preferences = {
   signCameraLarge: boolean;
   /** Testing only (development builds): draw MediaPipe's points and the signing line on the camera. */
   signShowLandmarks: boolean;
+  /** The "How to sign" help has been shown once (it opens by itself the first time the camera is on). */
+  signHelpSeen: boolean;
   // First-time tutorial (HANDOFF.md §40)
   /** The pages whose tour has been seen (or skipped). Empty again with "Show the tutorial again". */
   tutorialSeen: string[];
@@ -141,6 +143,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   signFlip: false,
   signCameraLarge: false,
   signShowLandmarks: false,
+  signHelpSeen: false,
   tutorialSeen: [],
   layaButton: null,
 };

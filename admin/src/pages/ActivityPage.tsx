@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { ActivityTable } from '../components/ActivityTable';
 import { AddressToggle } from '../components/AddressToggle';
+import { DateRangeFields } from '../components/DateRangeFields';
+import { ExportButton } from '../components/ExportButton';
 import { useAddressVisibility } from '../hooks/useAddressVisibility';
 import { PageLoader } from '../components/PageLoader';
 import { Pagination } from '../components/Pagination';
@@ -17,7 +19,7 @@ export default function ActivityPage() {
   useDocumentTitle('Activity');
   const { data, loading, error, filters, updateParams } = useListQuery<ActivityListResponse>(
     '/activity',
-    ['type', 'ip'],
+    ['type', 'ip', 'from', 'to'],
     PAGE_SIZE,
   );
   const { shown: showAddresses } = useAddressVisibility();
@@ -66,10 +68,12 @@ export default function ActivityPage() {
             maxLength={100}
           />
         </div>
+        <DateRangeFields idPrefix="activity" from={filters.from} to={filters.to} onChange={updateParams} />
         <button type="submit" className="btn btn-primary">
           Search
         </button>
         <AddressToggle />
+        <ExportButton endpoint="/activity/export.csv" filters={filters} />
       </form>
 
       {error ? (

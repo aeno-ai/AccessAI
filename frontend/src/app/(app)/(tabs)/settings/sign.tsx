@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SIGN_LANGUAGE_NAMES, SignChoices } from '@/components/sign/SignChoices';
+import { SignHelpSheet } from '@/components/sign/SignHelpSheet';
 import { RadioGroup } from '@/components/ui/RadioGroup';
-import { SectionHeader } from '@/components/ui/SettingRow';
+import { SectionHeader, SettingRow } from '@/components/ui/SettingRow';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Spacing } from '@/constants/theme';
 import { useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
@@ -23,12 +25,24 @@ export default function SignSettingsScreen() {
   const { prefs, setPref } = usePreferences();
   const styles = useThemedStyles(makeStyles);
   const models = useSignModels();
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpUnit = prefs.signUnit === 'letters' && signReady(models, prefs.signLanguage, 'letters') ? 'letters' : 'words';
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.note}>
         Point the camera at someone signing, or sign yourself. Each sign becomes text in the message box.
       </Text>
+
+      <View style={styles.card}>
+        <SettingRow
+          icon="help-circle-outline"
+          title="How to sign for the camera"
+          description="Short steps for signing words and spelling letters."
+          onPress={() => setHelpOpen(true)}
+        />
+      </View>
+      <SignHelpSheet visible={helpOpen} unit={helpUnit} onClose={() => setHelpOpen(false)} />
 
       <SignChoices models={models} />
 

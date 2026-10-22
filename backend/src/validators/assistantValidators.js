@@ -26,10 +26,12 @@ const interpretValidators = [
 ];
 
 // Tidying a message before it's sent: 'message' fixes grammar; 'gloss'
-// turns sign-language words ("ME GO STORE TOMORROW") into a sentence.
+// turns sign-language words ("ME GO STORE TOMORROW") into a sentence;
+// 'spell' fixes a fingerspelled word; 'translate' puts signed text into
+// English or Filipino (`language` = en/fil).
 const polishValidators = [
   spokenText('text', 500),
-  body('kind').isString().withMessage(GENERIC).bail().isIn(['message', 'gloss', 'spell']).withMessage(GENERIC),
+  body('kind').isString().withMessage(GENERIC).bail().isIn(['message', 'gloss', 'spell', 'translate']).withMessage(GENERIC),
   body('language').optional().isString().withMessage(GENERIC).bail().isIn(['en', 'fil', 'fsl', 'asl', 'auto']).withMessage(GENERIC),
 ];
 

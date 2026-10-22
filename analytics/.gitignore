@@ -1,0 +1,8 @@
+# The Spark job's Python environment, the exported logs and its results
+# stay on this computer (HANDOFF.md §52).
+.venv/
+data/
+out/
+spark-warehouse/
+metastore_db/
+derby.log

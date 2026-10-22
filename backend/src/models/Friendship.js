@@ -31,4 +31,7 @@ friendshipSchema.index({ recipient: 1, status: 1 });
 
 friendshipSchema.statics.pairKeyOf = (a, b) => [String(a), String(b)].sort().join(':');
 
+// Admin dashboard and Suspicious Activities: counts over a date range (HANDOFF.md §52).
+friendshipSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('Friendship', friendshipSchema);

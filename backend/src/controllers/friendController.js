@@ -1,7 +1,7 @@
 const Friendship = require('../models/Friendship');
 const DirectMessage = require('../models/DirectMessage');
 const User = require('../models/Users');
-const { emitToUser, isOnline } = require('../realtime/io');
+const { emitToUser, onlineUsers } = require('../realtime/io');
 const { ensureFriendCode, normalizeFriendCode } = require('../utils/friendCode');
 const { usableFilter } = require('../utils/accountState');
 
@@ -46,6 +46,8 @@ const listFriends = async (req, res, next) => {
     const otherIds = friendships.map((f) => otherIdOf(f, me));
     const users = await User.find({ _id: { $in: otherIds }, ...usableAccount() }).select(PUBLIC_FIELDS).lean();
     const usersById = new Map(users.map((u) => [String(u._id), u]));
+    // Who's online, on any server copy — one question for the whole list.
+    const online = await onlineUsers(otherIds);
 
     // Every friend's last message and unread count at once, not one friend
     // after another (2 quick indexed queries per friend).
@@ -73,7 +75,7 @@ const listFriends = async (req, res, next) => {
       return {
         ...publicProfile(other),
         friendshipId: String(friendship._id),
-        online: isOnline(other._id),
+        online: online.has(String(other._id)),
         // You put them in your SOS circle / they put you in theirs. (`=== true`:
         // lean() results skip schema defaults, and old pairs may lack the flag.)
         inMySosCircle: (mine ? friendship.requesterSos : friendship.recipientSos) === true,

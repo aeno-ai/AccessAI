@@ -1,1 +1,1 @@
-{"language": "fsl", "unit": "words", "fixedSeconds": 4.0, "minConfidence": 0.5, "features": {"hand": false, "velocity": false}, "aspectCorrected": false}
+{"language": "fsl", "unit": "words", "fixedSeconds": 4.0, "minConfidence": 0.54, "features": {"hand": true, "velocity": true}, "aspectCorrected": true}

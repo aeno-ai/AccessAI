@@ -31,4 +31,7 @@ directMessageSchema.index({ friendshipId: 1, createdAt: 1 });
 // index alone answers it (a "covered" count, no documents read).
 directMessageSchema.index({ friendshipId: 1, senderId: 1, createdAt: 1 });
 
+// Admin dashboard and Suspicious Activities: counts over a date range (HANDOFF.md §52).
+directMessageSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('DirectMessage', directMessageSchema);

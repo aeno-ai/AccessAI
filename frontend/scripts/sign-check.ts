@@ -7,9 +7,10 @@
 // input (to 1e-4), same places where a sign or a held letter is cut.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildHand21, makeFeatures, normalize, sampleFrameIndices, T_FRAMES, type Frame } from '../src/sign/features';
+import { buildHand21, makeFeatures, normalize, sampleFrameIndices, shapeForModel, T_FRAMES, type Frame } from '../src/sign/features';
 import { AutoSegmenter, HoldSegmenter } from '../src/sign/segmenter';
 import { SignNet, topK, type NetSpec } from '../src/sign/net';
+import { signWordInFilipino } from '../src/sign/glossary';
 
 type Case = {
   name: string;
@@ -22,11 +23,13 @@ type Case = {
   top5: [number, number][];
   stream: { aspect: number; fps: number; frames: number[][]; cuts: number[] };
 };
-type Hold = { frames: number[][]; cuts: number[]; hand21: number[] | null };
+type Hold = { frames: number[][]; cuts: number[]; hand21: number[] | null; letters?: Record<string, [number, number][]> };
+type Shape = { aspect: number; corrected: boolean; raw: number[][]; shaped: number[][] };
 
 const fixtures = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'sign-fixtures.json'), 'utf8')) as {
   cases: Case[];
   holds: Hold[];
+  shapes?: Shape[];
 };
 
 let passed = 0;
@@ -40,11 +43,16 @@ function check(name: string, ok: boolean, detail?: unknown) {
   }
 }
 
+// 1e-4, relative for numbers bigger than 1: the fixtures store raw points to
+// 6 places, and a hand-shape number divided by a small palm (e.g. -11.08)
+// carries that rounding up (2026-10-21: 3.4e-4 absolute = 3e-5 relative).
 const TOLERANCE = 1e-4;
 function maxDiff(a: ArrayLike<number>[], b: number[][]): number {
   let worst = 0;
   for (let i = 0; i < b.length; i += 1) {
-    for (let j = 0; j < b[i].length; j += 1) worst = Math.max(worst, Math.abs(a[i][j] - b[i][j]));
+    for (let j = 0; j < b[i].length; j += 1) {
+      worst = Math.max(worst, Math.abs(a[i][j] - b[i][j]) / Math.max(1, Math.abs(b[i][j])));
+    }
   }
   return worst;
 }
@@ -90,19 +98,36 @@ fixtures.holds.forEach((h, n) => {
   }
 });
 
+// The picture-shape stretch (shapeForModel) vs registry.shape_for_model.
+(fixtures.shapes ?? []).forEach((s) => {
+  const ours = frames(s.raw).map((f) => shapeForModel(f, s.aspect, s.corrected));
+  const d = maxDiff(ours, s.shaped);
+  check(`picture shape (${s.corrected ? 'trained on real proportions' : 'older 16:9 model'}, max diff ${d.toExponential(1)})`, d < TOLERANCE);
+});
+
 // The on-phone model runner (src/sign/net.ts) vs the NumPy one, on the same input.
 const nets = new Map<string, SignNet>();
-function netFor(language: string): SignNet {
-  let net = nets.get(language);
+function netFor(language: string, unit: 'words' | 'letters' = 'words'): SignNet {
+  const key = `${language}/${unit}`;
+  let net = nets.get(key);
   if (!net) {
-    const folder = join(__dirname, '..', 'assets', 'sign-models', language, 'words');
+    const folder = join(__dirname, '..', 'assets', 'sign-models', language, unit);
     const spec = JSON.parse(readFileSync(join(folder, 'model.json'), 'utf8')) as NetSpec;
     const bytes = readFileSync(join(folder, 'model.bin'));
     net = new SignNet(spec, new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4));
-    nets.set(language, net);
+    nets.set(key, net);
   }
   return net;
 }
+fixtures.holds.forEach((h, n) => {
+  for (const [language, theirs] of Object.entries(h.letters ?? {})) {
+    if (!h.hand21) continue;
+    const top = topK(netFor(language, 'letters').predict([Float32Array.from(h.hand21)]));
+    const same = top.every(([i], k) => i === theirs[k][0]);
+    const pd = Math.max(...top.map(([, p], k) => Math.abs(p - theirs[k][1])));
+    check(`hold ${n + 1}: ${language} letters model's top 5 (prob diff ${pd.toExponential(1)})`, same && pd < TOLERANCE, { ours: top, theirs });
+  }
+});
 for (const c of fixtures.cases) {
   const language = c.name.split('/')[0];
   const started = Date.now();
@@ -114,5 +139,12 @@ for (const c of fixtures.cases) {
 }
 
 check('fixtures have cases for both languages', new Set(fixtures.cases.map((c) => c.name.split('/')[0])).size === 2);
+
+// The offline translator (src/sign/glossary.ts) knows every word the models read.
+for (const language of ['fsl', 'asl']) {
+  const labels = JSON.parse(readFileSync(join(__dirname, '..', 'assets', 'sign-models', language, 'words', 'labels.json'), 'utf8')) as string[];
+  const missing = labels.filter((label) => signWordInFilipino(label) === null);
+  check(`${language} words all have a Filipino word for offline translating`, missing.length === 0, missing);
+}
 console.log(`${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

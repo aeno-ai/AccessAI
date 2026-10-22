@@ -24,6 +24,10 @@ type Props = {
  */
 export function SignCamera({ output, facing, isActive, style, debug, mirroredPreview = facing === 'front' }: Props) {
   const device = useCameraDevice(facing);
+  // The phone refused the low-light boost even though the camera has it
+  // (CameraX can, e.g. while frames go to the sign reader): drop it, keep
+  // the camera.
+  const [boostRefused, setBoostRefused] = useState(false);
   if (!output || !device) return <View style={[styles.camera, style]} />;
   return (
     <View style={[styles.camera, style]}>
@@ -32,8 +36,19 @@ export function SignCamera({ output, facing, isActive, style, debug, mirroredPre
         device={device}
         isActive={isActive}
         outputs={[output]}
-        // Only where the camera has it: asking for it elsewhere stops the camera.
-        enableLowLightBoost={device.supportsLowLightBoost}
+        // Asked for only where the camera has it — and never sent as `false`:
+        // on Android any value (even false) calls CameraX's low-light boost,
+        // which fails on cameras without it.
+        enableLowLightBoost={device.supportsLowLightBoost && !boostRefused ? true : undefined}
+        onError={(error) => {
+          if (/low.?light/i.test(error.message)) {
+            setBoostRefused(true);
+            return;
+          }
+          // VisionCamera's default is console.error (a red screen in
+          // development); the reader shows its own tips to the person.
+          console.warn(`[sign] camera: ${error.message}`);
+        }}
         resizeMode="cover"
       />
       {debug ? <LandmarkOverlay debug={debug} mirrored={mirroredPreview} /> : null}

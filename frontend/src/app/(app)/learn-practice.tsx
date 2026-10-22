@@ -17,7 +17,8 @@ import { useDescribeSigns } from '@/learn/useFeedback';
 
 /**
  * Free camera practice: pick any sign of your course and make it in front
- * of the camera as often as you like. Needs the internet.
+ * of the camera as often as you like. Signs are read on the phone, so it
+ * works offline.
  */
 export default function PracticeScreen() {
   const { prefs } = usePreferences();

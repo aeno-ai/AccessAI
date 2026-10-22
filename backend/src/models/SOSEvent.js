@@ -59,4 +59,7 @@ sosEventSchema.index({ userId: 1, status: 1, createdAt: -1 });
 // The expiry job: only the active ones that are past their time.
 sosEventSchema.index({ status: 1, expiresAt: 1 });
 
+// Admin dashboard and Suspicious Activities: counts over a date range (HANDOFF.md §52).
+sosEventSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('SOSEvent', sosEventSchema);

@@ -215,7 +215,7 @@ def main():
                 clips = signs_in(times, frames, aspect, model)
                 top1 = top5 = read = 0
                 for clip in clips:
-                    res = model.predict(clip)
+                    res = model.predict(clip, aspect)
                     if "top" not in res:
                         continue
                     read += 1
@@ -226,7 +226,7 @@ def main():
                     totals[name][i] += n
                 best = "-"
                 if clips:
-                    res = model.predict(max(clips, key=len))
+                    res = model.predict(max(clips, key=len), aspect)
                     if "top" in res:
                         best = f"{model.labels[res['top'][0][0]]} {res['top'][0][1]:.2f}"
                 line.append(f"{name}: {len(clips)} cut, {top1}/{read} right, best {best:<22}")

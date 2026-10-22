@@ -3,7 +3,7 @@ const EmergencyContact = require('../models/EmergencyContact');
 const Friendship = require('../models/Friendship');
 const DirectMessage = require('../models/DirectMessage');
 const User = require('../models/Users');
-const { emitToUser, isOnline, isForeground } = require('../realtime/io');
+const { emitToUser, isForeground, onlineUsers, foregroundUsers } = require('../realtime/io');
 const { pushToUsers } = require('../utils/push');
 const { usableFilter } = require('../utils/accountState');
 const { toClient } = require('./directMessageController');
@@ -174,10 +174,11 @@ const triggerSOS = async (req, res, next) => {
 
     const alerted = [];
     let friendsOnline = 0;
+    const online = await onlineUsers(circle.map(({ friendId }) => friendId));
     for (const { friendId } of circle) {
       const dm = dmByClientId.get(clientIdOf(friendId));
       if (!dm) continue;
-      if (isOnline(friendId)) friendsOnline += 1;
+      if (online.has(String(friendId))) friendsOnline += 1;
       emitToUser(friendId, 'sos:alert', alertPayload);
       emitToUser(friendId, 'dm:new', { friendId: String(me), message: toClient(dm, friendId) });
       alerted.push(friendId);
@@ -259,8 +260,9 @@ const resolveSOS = async (req, res, next) => {
       // Only the call that ended it tells friends (not a double tap, nor
       // the expiry job at the same moment).
       const ended = await endEvent(event, 'safe', senderName);
+      const onScreen = ended ? await foregroundUsers(event.recipients) : new Set();
       if (ended) void pushToUsers(
-        event.recipients.filter((id) => !isForeground(id)).map(String),
+        event.recipients.map(String).filter((id) => !onScreen.has(id)),
         {
           title: `${senderName} is safe now`,
           body: event.isTest ? 'The test SOS has ended.' : `${senderName} ended their SOS.`,
@@ -310,7 +312,7 @@ const respondToSOS = async (req, res, next) => {
       kind: finalKind,
       at: Date.now(),
     });
-    if (!isForeground(owner)) {
+    if (!(await isForeground(owner))) {
       void pushToUsers([owner], {
         title: finalKind === 'on_my_way' ? `${responderName} is on the way` : `${responderName} saw your SOS`,
         body: finalKind === 'on_my_way' ? 'Help is coming.' : 'They know you need help.',

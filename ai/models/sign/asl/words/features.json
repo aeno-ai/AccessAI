@@ -1,1 +1,5 @@
-{"hand": true, "velocity": false}
+{
+ "hand": true,
+ "velocity": false,
+ "aspect_corrected": true
+}

@@ -29,10 +29,20 @@ export function RequireAuth() {
   return <Outlet />;
 }
 
-export function RequirePermission({ permission, children }: { permission: Permission; children: ReactNode }) {
+export function RequirePermission({
+  permission,
+  children,
+  fallback,
+}: {
+  permission: Permission;
+  children: ReactNode;
+  /** Shown instead of "No access" (e.g. a redirect). */
+  fallback?: ReactNode;
+}) {
   const { hasPermission } = useAuth();
 
   if (!hasPermission(permission)) {
+    if (fallback !== undefined) return fallback;
     return (
       <section className="page">
         <h1>No access</h1>

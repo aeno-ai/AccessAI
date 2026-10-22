@@ -8,13 +8,22 @@ available — e.g. Letters says "Coming soon" until a letters model is in
 place. Each folder has a `PUT_MODEL_FILES_HERE.txt` saying what goes there.
 
 ```
-ai/models/sign/
-  fsl/words/     model.keras + labels.json   FSL-105 (105 words)    ✓
-  asl/words/     model.keras + labels.json   WLASL (125 words)      ✓
-                 + features.json (hand shapes)
-  fsl/letters/   (empty — fingerspelling model not trained yet)
-  asl/letters/   (empty — fingerspelling model not trained yet)
+ai/models/sign/                    (all four retrained 2026-10-19/21, HANDOFF.md §52)
+  fsl/words/     model.keras + labels.json + meta.json + features.json
+                 FSL-105, 105 words, hand + velocity features      ✓  test 79.3% / top-5 94.9%
+  asl/words/     model.keras + labels.json + meta.json + features.json
+                 WLASL, 125 words, hand features                    ✓  test 61.2% / top-5 76.8%
+  fsl/letters/   model.keras + labels.json + meta.json (hand-21)   ✓  test 96.1% / top-5 98.7%
+  asl/letters/   model.keras + labels.json + meta.json (hand-21)   ✓  test 94.7% / top-5 98.0%
 ```
+
+All four are trained on real picture proportions (`aspect_corrected: true` in
+features.json or meta.json): the AI service and the phone stretch x by the
+picture's width ÷ height before reading (registry.py `shape_for_model`,
+features.ts `shapeForModel`). The previous word models are backed up in
+`~/Documents/AccessAI-model-backups/2026-10-21/`. After a swap, export for
+the phone: `.venv\Scripts\python scripts\export_sign_model.py`, then
+`export_sign_fixtures.py` and `npx tsx scripts/sign-check.ts` in frontend/.
 
 ## Swapping in a better model
 

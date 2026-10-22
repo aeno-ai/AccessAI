@@ -1,3 +1,5 @@
+import { DateRangeFields } from '../components/DateRangeFields';
+import { ExportButton } from '../components/ExportButton';
 import { PageLoader } from '../components/PageLoader';
 import { Pagination } from '../components/Pagination';
 import { SosTable } from '../components/SosTable';
@@ -13,7 +15,7 @@ export default function SosPage() {
   useDocumentTitle('SOS');
   const { data, loading, error, filters, updateParams } = useListQuery<SosListResponse>(
     '/sos',
-    ['kind', 'unanswered'],
+    ['kind', 'unanswered', 'from', 'to'],
     PAGE_SIZE,
   );
 
@@ -42,6 +44,8 @@ export default function SosPage() {
           />
           Only ones no one answered
         </label>
+        <DateRangeFields idPrefix="sos" from={filters.from} to={filters.to} onChange={updateParams} />
+        <ExportButton endpoint="/sos/export.csv" filters={filters} />
       </div>
 
       {error ? (

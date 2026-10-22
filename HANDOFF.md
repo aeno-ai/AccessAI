@@ -1,6 +1,6 @@
 # AccessAI — Handoff
 
-_Last updated: 2026-10-19. Pick-up line for a new Claude session: **"Read HANDOFF.md — start with ★ Start here → '▶ Resume here (2026-10-17, night)', then §47–§50. §49 on-phone sign reading: the MediaPipe protobuf crash is FIXED and the phone finds points; the picture-shape bug is fixed in JS (ASL 5/35 → 18/35 on phone-shaped clips); the owner is retraining the word + letter models on Kaggle with a prompt from 2026-10-19 — see §49 '2026-10-19 … ▶ resume here' and its 'Next, in order'. §50: the 2026-10-19 small changes (Learn buttons, Laya's reply to questions) and the dummy test account Test Buddy (still has an ACTIVE SOS to the owner). §30–§44 are all BUILT (e2e 215/215 with the AI on). Two questions wait for the owner (support contact; SOS while suspended). The owner commits."**_
+_Last updated: 2026-10-21. Pick-up line for a new Claude session: **"Read HANDOFF.md — start with §54 'Where things stand (2026-10-21)': what's finished, what the owner still has to do, and the open decision (hybrid deployment). Details: §52 (new sign models, admin dashboard + Suspicious Activities, scalability through MongoDB + Spark, How-to-sign help, sign translator), §53 (Oracle Always Free deployment kit in deploy/oracle/), §51 (landing page). Older context: ★ Start here, §49 (on-phone sign reading), §50 (Test Buddy still has an ACTIVE SOS to the owner). The owner commits."**_
 
 Ground rules every change follows:
 
@@ -872,3 +872,91 @@ The owner asked for all of these on 2026-10-17 and answered the open questions t
 - Learning from use: keep the sentences Laya didn't understand for review (needs a Terms/privacy note).
 
 **State at the end of 2026-10-19:** the backend on port 3000 was stopped; no Claude task left running.
+
+## 51. Plan (owner, 2026-10-19): a landing page (website), hosted on Vercel
+
+**Why:** a public page that explains AccessAI, offers the download, and hosts the Terms & Privacy at a real URL (Google Play needs one later). The app is Android-first.
+
+**Decided (owner, 2026-10-19):**
+- Hosting: **Vercel** (owner links the GitHub repo; project root `landing/`).
+- Download: **dummy for now**. Two equal buttons, "Download for Android" and "Download for iPhone" (both `#`), + requirements; the owner wires the real links later. **No "coming later / coming soon / still in testing" wording anywhere** (owner, 2026-10-19).
+- Pages: **Home** (who it's for, features with screenshots, works offline, download + requirements + install steps), **Terms & Privacy**, **About / Team**. No account-deletion page yet.
+
+**Build:**
+- `landing/`: Vite (no framework), 3 pages: `index.html`, `terms.html`, `about.html`; one stylesheet; no tracking, no cookies.
+- Terms & Privacy are rendered **at build time from `frontend/src/constants/legal.ts`** (`TERMS_INTRO`, `TERMS_SECTIONS`, `PWD_DECLARATION`, `TERMS_VERSION`), so the site and the app never disagree. Vercel needs "Include files outside the root directory" on (the default).
+- Download links live in one place, `landing/site.config.ts` (`androidApkUrl`, `iosUrl`; empty = "coming soon").
+- Accessibility first (the audience): Atkinson Hyperlegible font, large text, skip link, landmarks, visible focus, alt text, reduced motion, dark mode, contrast checked.
+- Screenshots from the 2026-10-19 manuscript, only those without a real address or a face (the SOS review screens show a real road; the sign camera shows a person) — the sign camera can be added if the owner agrees.
+- Plain-language rule applies (no server/model/Expo wording). Facts only from the app: Android 7.0+ (minSdk 24), FSL 105 / ASL 125 words, 72 Laya actions, Learn 12 + 12 signs, SOS hold/shake/voice, 30-minute live location, 911.
+
+**Checks:** `npm run build` in `landing/`; open the built pages; phone-width layout; links; contrast.
+
+**Built 2026-10-19.** `landing/` (Vite 8, no framework): `index.html`, `about.html`, `terms.html`, `src/styles.css`, `vite.config.ts` (a small plugin fills `<!--HEADER-->`, `<!--FOOTER-->`, `<!--ANDROID-->`, `<!--IOS-->`, `<!--TERMS-->`, `<!--TERMS_UPDATED-->`, `<!--VERSION-->`), `site.config.ts` (download links, both empty = dummy), `vercel.json` (clean URLs, basic security headers), `public/` (logo mark, favicon, 7 screenshots). Checked: build green; all placeholders filled; Terms "Last updated October 17, 2026" from `legal.ts`; light + dark; 390 px wide (one hero phone, no sideways scroll); every text colour pair ≥ 4.5:1. Vite warns once that `frontend/` isn't `"type": "module"` (harmless; only for a future Vite default).
+- **Deploy (owner):** commit + push → vercel.com → Add New → Project → import `aeno-ai/AccessAI` → **Root Directory `landing`** (keep "Include files outside the root directory" on) → Deploy. Later pushes redeploy by themselves.
+- **Wire the download:** put the links in `landing/site.config.ts` (`androidApkUrl`, `iosUrl`) → push.
+- **View without a server:** `npm run build`, then double-click `landing/dist/index.html` (`base: './'`, all links relative; the plugin runs `order: 'pre'` so the header/footer images get rewritten too).
+- **Not on the site on purpose:** the SOS review screenshots (a real road address) and the sign-camera ones (a person's face). Fingerspelling says "Soon" until the letters models are in the app.
+
+## 52. Plan (owner, 2026-10-21): new sign models, a professional admin side, a scalable setup, and "How to sign" help
+
+Full plan file: `~/.claude/plans/twinkling-weaving-brooks.md`. **No new APK** for any of it. Everything new for scaling is **off by default** (`npm run dev` stays one process; Spark only runs by hand).
+
+**Decided (owner, 2026-10-21):**
+- **Models:** install all four new ones from `~/Downloads` (`words-asl`, `words-fsl` (arrived 2026-10-21), `letters-asl`, `letters-fsl`); the new word models stay even if the team-clip comparison is worse. Old files backed up to `~/Documents/AccessAI-model-backups/2026-10-21/`.
+- **Admin:** a dashboard of all logs with graphs over time (Manila time); "Needs a look" → **"Suspicious Activities"** with descriptions of what was captured, a new **"5+ failed logins in a row"** rule and a severity per flag; extras: **admin action log page** (super admin only), **act on flags in one click**, **CSV export**, **date-range filters**.
+- **Scalability:** several backend copies sharing live connections, rate limits and timed jobs **through MongoDB Atlas** (no Redis/Docker on this laptop), plus an **on-demand PySpark log-analytics job** (own venv, Java 17 already here). Written up in `docs/SCALABILITY.md` for the defense.
+- **App:** a **"How to sign"** help sheet (words and letters, quoting the real on-screen labels), opened from a pill under the sign camera, a "?" on the sign camera screen, Learn's camera check and Settings → Sign language; shown once automatically.
+
+**Defaults chosen:** admin log page super-admin only; dashboard message counts are totals only (never bodies or per person); CSV capped at 10,000 rows with a formula guard; `CLUSTER_WORKERS` default 2; new packages: Recharts (admin), `@socket.io/mongo-adapter` + `mongodb` + `autocannon` (backend), pyspark (own venv).
+- **E. Sign translator (owner, 2026-10-21):** the output of signing (FSL or ASL) can be translated **English ↔ Filipino**, on the **sign camera result** ("Said out loud" card) and in the **message box after signing** (Conversation Mode and chats). **Online:** the AI (same service as the sentence step). **Offline:** a basic word-by-word mode for the signed words, from a built-in list of the sign words in Filipino.
+
+**Built and checked 2026-10-21 (all of §52):**
+- **Models (A):** all four installed (`ai/models/sign/*/*`), exported to `frontend/assets/sign-models/*/*`, letters added to `BUNDLED` (`frontend/src/sign/models.ts`). The AI service now applies `aspect_corrected` too (`registry.py shape_for_model`, `session.py` passes the real aspect). `sign-check` **49/49** (new: both letters models' top 5, the picture-shape stretch, a velocity case, and a check that every sign word has a Filipino entry), `learn-check` 56/56. Old word models backed up in `~/Documents/AccessAI-model-backups/2026-10-21/`. **Team clips (24 Learn videos), first guess:** ASL landscape 20→**26**/34, ASL portrait 18→**22**/35, FSL landscape 9→10/27, FSL portrait 10→10/30 (FSL NO and YES still missed).
+- **Help + translator (D, E):** `components/sign/SignHelpSheet.tsx` (+ `signText.ts` shared labels) opens from a "How to sign" pill under every sign camera (and once by itself, pref `signHelpSeen`), a "?" on the sign camera screen (`ScreenHeader` got a `right` slot), Learn's camera check and Settings → Sign language. The sign camera no longer blocks offline. Translator: `components/sign/TranslateButtons.tsx` on the sign camera's result card and in the message box after signing; `utils/signedText.ts translateSigned`. **Owner (2026-10-21): into Filipino always uses the built-in word list** (`src/sign/glossary.ts`, all 205 sign words) — qwen2.5 3B/7B wrote wrong Tagalog ("I need help" → "Mahal kita"); into English uses the AI (`kind: 'translate'` in `ai/app/polish.py`, with the direction + one example in the prompt), offline = the signed words. `tsc`, lint, `laya-rules-check` 224/224.
+- **Admin (B):** backend `controllers/adminDashboardController.js` (`GET /api/admin/dashboard?range=24h|7d|30d|90d`, Manila buckets), `adminRecordsController.js` rewritten (Suspicious Activities with 6 rules incl. `failed_logins_streak` 5+ in a row, evidence, severity; `/audit` super-admin-only via new `audit:read`; `from`/`to` date filters; CSV exports with a formula guard, `utils/csv.js`, `utils/dateRange.js`), date indexes on 5 models. Admin site: `DashboardPage` (Recharts, lazy-loaded; KPIs, 7 time charts, busiest-hours heatmap, 7 breakdowns, every chart with "Show as table"), `ReviewPage` = Suspicious Activities (severity, rule legend, sentences from `utils/format.ts describeFlag`, View account / Suspend… in one click), `AuditLogPage`, date range + Export CSV on Activity and SOS. Screenshot-checked. `npm run build` + `lint` clean.
+- **Scalability (C):** `realtime/io.js` asks socket.io rooms (never a local map) — `SOCKET_ADAPTER=mongo` shares them through `@socket.io/mongo-adapter`; `middleware/sharedRateStores.js` (`RATE_LIMIT_STORE=mongo`: the token bucket as one atomic update + an express-rate-limit store); `utils/jobLease.js` (each timed job on one copy); `src/cluster.js` + `npm run start:cluster`; `TRUST_PROXY`; `/api/health` 503 "draining" on shutdown; `PORT` default 3000. **`npm run scale-check` 5/5** (two real copies). **`npm run load-test`:** 1 copy 39 req/s, 2 copies 34 req/s (p50 ~1.1 s) — the bottleneck is the free Atlas tier (ping ~100 ms, 40 at once 1.6 s), not the servers. **Spark:** `backend npm run export-logs` (people as salted hashes, no names/emails/addresses/locations) → `analytics/spark_job.py` (own venv, pyspark 4.0.4, Java 17): 97 records 14.5 s, 9,700 16.5 s, 970,000 20.4 s on 10 cores. Defense write-up: **`docs/SCALABILITY.md`**.
+- **Backend e2e 241/241** (normal mode, AI on), `rate-check` 15/15.
+- **Next (owner):** phone test over Metro (letters, How to sign, translate, sign camera offline); then commit. ASL demo words for the defense are in the 2026-10-21 chat summary (from `per_word_test.csv`).
+- **Low-light boost error (fixed 2026-10-21):** VisionCamera (Android) calls CameraX `enableLowLightBoostAsync` whenever `enableLowLightBoost` is set — even `false` — and CameraX can refuse it even on cameras that report `supportsLowLightBoost` (e.g. with the sign reader's frame output bound). The refusal went to VisionCamera's default `onError` (`console.error` → red screen in dev). `SignCamera.tsx` now sends `true` only where supported (otherwise nothing), and its `onError` drops the boost quietly when it's refused; other camera errors are `console.warn` (`[sign] camera: …`). JS only — reload over Metro.
+- **Dashboard (owner, 2026-10-21):** the "Phones used to log in" breakdown was removed (card, `breakdowns.platforms` in `adminDashboardController.js`, its type and e2e check).
+
+## 53. Plan (owner, 2026-10-21): deploy everything on Oracle Cloud "Always Free"
+
+**Decided (owner):** prepare an Oracle Always Free deployment (files + step-by-step guide in `deploy/oracle/`); the owner creates the accounts and runs it. Claude deploys nothing.
+
+**Design:**
+- One ARM VM (Ubuntu 24.04, Ampere A1, up to 4 cores / 24 GB on Always Free) runs: the backend as several copies (`npm run start:cluster`, `CLUSTER_WORKERS` = cores, shared through Atlas), the AI service (uvicorn, 127.0.0.1:8001) and Ollama (qwen2.5:3b + bge-m3) as systemd services; **Caddy** in front for HTTPS (free DuckDNS subdomain, automatic Let's Encrypt).
+- **One address for the API and the admin site:** Caddy sends `/api/*` and `/socket.io/*` to the backend and serves the built admin site for everything else. Reason: the admin session cookie is `SameSite=Strict`, so the admin site must be on the same site as the API (a Vercel admin on another domain could not log in). The landing page stays on Vercel. MongoDB stays on Atlas M0.
+- Server AI packages without MediaPipe/OpenCV (`ai/requirements-server.txt`): sign reading runs on the phones; the AI service's sign sessions aren't used by the app, and MediaPipe 0.10.14 may have no ARM Linux wheel.
+- Changes outside the server: Google OAuth redirect URI, Atlas network access, `EXPO_PUBLIC_API_URL` + a new APK, Gmail app password on the server (port 587).
+
+**Built 2026-10-21:** `deploy/oracle/` — `README.md` (the step-by-step guide: Oracle VM, VCN ports, DuckDNS, Atlas IP, Google redirect URI, clone with a token, `backend/.env`, setup, checks, APK, updates), `setup.sh` (Node 24, Caddy, Ollama, iptables 80/443, backend `npm ci --omit=dev`, admin build → `/var/www/accessai-admin`, AI venv from `ai/requirements-server.txt`, model pulls, systemd units, Caddyfile), `update.sh`, `Caddyfile`, `accessai-backend.service` (`node src/cluster.js`), `accessai-ai.service` (uvicorn on 127.0.0.1:8001), `backend.env.example`; `deploy/.gitattributes` keeps LF endings. Scripts pass `bash -n`; not run on a real VM yet. **The server clones from GitHub: commit and push first.**
+
+## 54. Where things stand (2026-10-21) — ▶ start here
+
+**Finished and checked (nothing deployed, nothing committed — the owner commits):**
+- **Sign models (§52 A):** all four new models (FSL/ASL words + letters) installed, on the phone and in the AI service; letters turn on in the app by themselves. `sign-check` 49/49, `learn-check` 56/56. ASL words clearly better on the team's own clips (26/34 vs 20/34); FSL about the same.
+- **App (§52 D, E):** "How to sign" help (pill under every sign camera, "?" on the sign camera screen, Learn's camera check, Settings); sign translator (English via the AI, Filipino via the built-in word list); sign camera works offline; low-light boost error fixed (`SignCamera.tsx`). `tsc`, lint, `laya-rules-check` 224/224. **No new APK needed** (reload over Metro).
+- **Admin (§52 B):** dashboard (graphs over time, KPIs, heatmap, breakdowns; "Phones used to log in" removed on request), Suspicious Activities (6 rules incl. 5+ failed logins in a row, severity, plain-English evidence, one-click Suspend), Admin log (super admins), date filters and CSV export. Build + lint clean, screenshot-checked.
+- **Scalability (§52 C):** several backend copies sharing through MongoDB Atlas (`npm run start:cluster`, off by default), `npm run scale-check` 5/5, `npm run load-test` (bottleneck = the free Atlas tier), Spark log analytics (`analytics/`, 970,000 records in ~20 s). Defense write-up: `docs/SCALABILITY.md`; a study prompt for it was given to the owner in chat.
+- **Backend e2e 241/241**, `rate-check` 15/15.
+- **Landing page (§51):** built, dummy download buttons, mentions letters + translation.
+- **Deployment kit (§53):** `deploy/oracle/` (guide, setup/update scripts, Caddy, systemd, env template) — not run on a real server yet.
+
+**The owner still has to:**
+1. **Phone test** over Metro: Letters (FSL/ASL), "How to sign", Translate (sign camera + message box), the sign camera with Wi-Fi off, no red low-light error.
+2. **Admin site:** open it against the real backend (dashboard, Suspicious Activities, Admin log as a super admin, CSV downloads).
+3. **Commit and push** everything (the Oracle server clones from GitHub). New folders: `analytics/` (its `.venv`, `data/`, `out/` are gitignored), `deploy/`, `landing/`, `docs/SCALABILITY.md`.
+4. **Decide the deployment** (below), then follow `deploy/oracle/README.md` — ideally a few days before the defense; the laptop + Tailscale setup stays the fallback.
+5. **New APK** only once the backend has its public server address (`EXPO_PUBLIC_API_URL`).
+6. Old open items: the Test Buddy account still has an ACTIVE SOS to the owner (§50); two questions from earlier wait (support contact; SOS while suspended).
+
+**Open decision — hybrid deployment (owner, 2026-10-21: "plan this later"):** any mix works because every backend copy shares its state through Atlas.
+- **A. Backend in the cloud, AI on the laptop:** Oracle runs the backend (chat, SOS, admin always online); Laya's AI runs on the laptop, reached privately over Tailscale (`AI_SERVICE_URL`). Laptop off → the app's existing fallbacks (Laya's phone rules, signed words as signed, Filipino word list). Needs: an `AI_HOST` setting so the AI service can listen on the Tailscale address (today `startAi.js` binds 127.0.0.1), `AI_SERVICE_URL` on the server, and a setup option to skip the AI install there.
+- **B. The laptop joins the cluster:** Caddy on Oracle load-balances between the server's copies and the laptop's copies (over Tailscale) with health checks (`/api/health`), skipping the laptop when it's off — the two-machine scalability demo. Needs: a second Caddyfile with the laptop as an extra upstream + `health_uri`, and the laptop running `npm run start:cluster` with the same secrets.
+- **A + B together**, or **full Oracle** (§53 as built). Claude's suggestion: A + B.
+
+**Defense notes the owner asked for (2026-10-21):** ASL demo sentences from words the new model never mixed up — MOTHER WORK DOCTOR · COUSIN DEAF · SON PLAY COMPUTER · FAMILY THANKSGIVING EAT · SORRY, PLEASE WATER · YES, TOMORROW THURSDAY. Avoid HELP (0% on its test clips, read as BOOK), DRINK, WANT, RIGHT, TELL, WAIT, and the "magnet" words BOOK, WHO, WHY, NAME. Letters: a short name, no J/Z.
+
+**Background processes:** none left running by Claude (its test copies on 3100/3201/3202/3301 and its admin dev server are stopped). At the end of 2026-10-21 the owner's own `npm run dev` (port 3000 + AI on 8001) and admin `vite` (5173) were running; Ollama was not, so Laya's AI waits until `ollama serve` is started.

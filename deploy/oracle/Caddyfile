@@ -1,0 +1,26 @@
+# AccessAI on one address (HANDOFF.md §53). setup.sh fills in __DOMAIN__.
+# Caddy gets and renews the HTTPS certificate by itself (Let's Encrypt).
+#   /api/*        → the backend (several copies, port 3000)
+#   /socket.io/*  → the backend's live connection (WebSockets pass through)
+#   everything else → the admin website (built files)
+# One address, so the admin's session cookie (SameSite=Strict) works.
+
+__DOMAIN__ {
+	encode zstd gzip
+
+	@backend path /api/* /socket.io/* /health
+	handle @backend {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	handle {
+		root * /var/www/accessai-admin
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}

@@ -26,6 +26,13 @@ export function Layout() {
             use. The pages and the API still check on their own. */}
         <nav aria-label="Main">
           <ul>
+            {hasPermission('activity:read') && hasPermission('sos:read') && (
+              <li>
+                <NavLink to="/" end>
+                  Dashboard
+                </NavLink>
+              </li>
+            )}
             {hasPermission('users:read') && (
               <li>
                 <NavLink to="/users">Users</NavLink>
@@ -33,7 +40,7 @@ export function Layout() {
             )}
             {hasPermission('activity:read') && hasPermission('sos:read') && (
               <li>
-                <NavLink to="/review">Needs a look</NavLink>
+                <NavLink to="/review">Suspicious Activities</NavLink>
               </li>
             )}
             {hasPermission('activity:read') && (
@@ -49,6 +56,11 @@ export function Layout() {
             {hasPermission('admins:read') && (
               <li>
                 <NavLink to="/admins">Admins</NavLink>
+              </li>
+            )}
+            {hasPermission('audit:read') && (
+              <li>
+                <NavLink to="/audit">Admin log</NavLink>
               </li>
             )}
             <li>

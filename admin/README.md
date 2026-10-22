@@ -37,8 +37,8 @@ npm run create-admin -- --email you@example.com --reset
 
 | Role        | Can do                                                        |
 |-------------|---------------------------------------------------------------|
-| Admin       | View users, deactivate or reactivate their accounts           |
-| Super admin | Everything above, plus add, disable, re-role and reset admins |
+| Admin       | Dashboard, users, Suspicious Activities, activity and SOS records (with date filters and CSV export); suspend for 1, 7 or 30 days, reactivate |
+| Super admin | Everything above, plus delete accounts in 30 days, the Admin log, and add, disable, re-role and reset admins |
 
 Permissions are defined once, in `backend/src/constants/adminRoles.js`. The
 panel hides what your role can't use, but the backend checks every request on

@@ -109,6 +109,9 @@ userSchema.index({ createdAt: 1 }, { partialFilterExpression: { emailVerified: f
 // one Expo says is gone). Sparse: accounts with no phones aren't in it.
 userSchema.index({ 'pushTokens.token': 1 }, { sparse: true });
 
+// Admin dashboard and Suspicious Activities: counts over a date range (HANDOFF.md §52).
+userSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('User', userSchema);
 
 // ITO YUNG SCHEMA KAPAG MAY NEED NA I RETREIVE NG USER DATA,

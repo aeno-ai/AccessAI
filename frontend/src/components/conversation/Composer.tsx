@@ -26,7 +26,8 @@ import { usePreferences, type SignLanguage, type SignUnit } from '@/hooks/use-pr
 import { speechToTextSupported, useSpeechToText } from '@/hooks/use-speech-to-text';
 import { useTourTarget } from '@/tutorial/targets';
 import { announce } from '@/utils/a11y';
-import { polishSigned } from '@/utils/signedText';
+import { TranslateButtons } from '@/components/sign/TranslateButtons';
+import { polishSigned, TRANSLATE_NAMES, translateSigned, type TranslateTo } from '@/utils/signedText';
 import { stopMixed } from '@/utils/speechHelper';
 
 /** What a screen can ask the composer to do. */
@@ -103,6 +104,9 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef, tourTarg
   const signed = useRef<Signed | null>(null);
   const [signCount, setSignCount] = useState(0);
   const [lastPolish, setLastPolish] = useState<Polish | null>(null);
+  // The text that finished signing put in the box, for "Translate" (HANDOFF.md §52 E):
+  // what came before it, the text itself, and the signed words (offline fallback).
+  const [translatable, setTranslatable] = useState<{ before: string; text: string; words: string[] } | null>(null);
   const textRef = useRef(text);
   useEffect(() => {
     textRef.current = text;
@@ -176,6 +180,7 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef, tourTarg
     signed.current = null;
     setSignCount(0);
     setLastPolish(null);
+    setTranslatable(null);
   };
 
   useImperativeHandle(
@@ -189,6 +194,7 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef, tourTarg
         signed.current = null;
         setSignCount(0);
         setLastPolish(null);
+        setTranslatable(null);
         setShowDictationHint(false);
         clearMessage();
       },
@@ -247,6 +253,7 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef, tourTarg
     entry.spelling = unit === 'letters';
     setSignCount((count) => count + 1);
     setLastPolish(null);
+    setTranslatable(null);
     showSigned(entry);
   };
 
@@ -289,14 +296,43 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef, tourTarg
 
     signed.current = null;
     setSignCount(0);
+    const words = [...entry.words];
+    setTranslatable({ before: entry.before, text: words.join(' '), words });
     if (!prefs.signAutoSentence) return;
-    const written = await polishSigned(entry.words.join(' '), 'gloss', language);
+    const written = await polishSigned(words.join(' '), 'gloss', language);
     // Only if nothing was typed meanwhile.
     if (!written || textRef.current !== shown) return;
     const next = joinText(entry.before, written);
     setText(next);
+    setTranslatable({ before: entry.before, text: written, words });
     setLastPolish({ label: 'The signed words were made into a sentence.', text: next, restoreText: shown, restoreSigned: null });
     announce(`In the message box: ${written}`);
+  };
+
+  // The signed text in English or Filipino, in the box, with Undo.
+  const translateBox = async (to: TranslateTo) => {
+    const source = translatable;
+    if (!source) return;
+    const shown = joinText(source.before, source.text);
+    if (textRef.current !== shown) {
+      setTranslatable(null);
+      announce('The message changed, so it wasn’t translated.');
+      return;
+    }
+    const result = await translateSigned(source.text, to, source.words);
+    if (!result) {
+      announce('Translating this needs the internet.');
+      setLastPolish({ label: 'Translating this needs the internet.', text: shown, restoreText: shown, restoreSigned: null });
+      return;
+    }
+    // Only if nothing was typed meanwhile.
+    if (textRef.current !== shown) return;
+    const next = joinText(source.before, result.text);
+    setText(next);
+    setTranslatable({ ...source, text: result.text });
+    const label = `In ${TRANSLATE_NAMES[to]}${result.basic ? ' (sign by sign)' : ''}.`;
+    setLastPolish({ label, text: next, restoreText: shown, restoreSigned: null });
+    announce(`In the message box, in ${TRANSLATE_NAMES[to]}: ${result.text}`);
   };
 
   const undoPolish = () => {
@@ -317,6 +353,9 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef, tourTarg
   const canSend = Boolean(text.trim()) && !listening && !sending;
   const speechMessage = speech.message;
   const hasReplies = prefs.quickReplies.length > 0;
+
+  // Translate is offered while the box still shows what signing put there.
+  const canTranslate = Boolean(translatable) && text === joinText(translatable?.before ?? '', translatable?.text ?? '');
 
   // One notice at a time, the most important first.
   let notice: ReactNode = null;
@@ -353,14 +392,21 @@ export function Composer({ onSend, listeningTo, aboveInput, controlRef, tourTarg
         <IconButton icon="close" label="Dismiss" iconSize={16} color={colors.textSecondary} onPress={clearMessage} />
       </View>
     );
-  } else if (lastPolish) {
+  } else if (lastPolish || canTranslate) {
     notice = (
-      <View style={styles.banner}>
-        <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
-        <Text style={styles.bannerText}>{lastPolish.label}</Text>
-        <Pressable onPress={undoPolish} style={styles.undoButton} accessibilityRole="button" accessibilityLabel="Undo the change">
-          <Text style={styles.noticeActionText}>Undo</Text>
-        </Pressable>
+      <View style={styles.signedNotice}>
+        {lastPolish ? (
+          <View style={styles.signedNoticeRow}>
+            <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
+            <Text style={styles.bannerText}>{lastPolish.label}</Text>
+            {lastPolish.text !== lastPolish.restoreText ? (
+              <Pressable onPress={undoPolish} style={styles.undoButton} accessibilityRole="button" accessibilityLabel="Undo the change">
+                <Text style={styles.noticeActionText}>Undo</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+        {canTranslate ? <TranslateButtons compact onTranslate={translateBox} /> : null}
       </View>
     );
   } else if (showDictationHint) {
@@ -491,6 +537,20 @@ const makeStyles = (t: AppTheme) =>
       fontSize: t.font(14),
       fontWeight: t.weight('800'),
       color: t.colors.primary,
+    },
+    signedNotice: {
+      gap: 6,
+      backgroundColor: t.colors.primaryLight,
+      marginHorizontal: 12,
+      marginBottom: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 14,
+    },
+    signedNoticeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
     },
     undoButton: {
       minHeight: 44,

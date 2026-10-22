@@ -15,6 +15,7 @@ import time
 import numpy as np
 
 from .features import IDX_LSHOULDER, IDX_RSHOULDER, OFF_LHAND, OFF_POSE, new_holistic, pack
+from .registry import LEGACY_TRAINING_ASPECT
 from .segmenter import AutoSegmenter, HoldSegmenter, judge
 
 IDLE_SECONDS = 120          # a session nobody sends to for 2 minutes is closed
@@ -38,6 +39,9 @@ class SignSession:
         self.model = model
         self.min_confidence = min_confidence
         self.flip = flip
+        # The video's width / height, for models trained on real picture
+        # proportions (registry.shape_for_model). Set from the first frame.
+        self.aspect = LEGACY_TRAINING_ASPECT
         self.holistic = new_holistic()
         # Words: a sign = hands up then down (AUTO). Letters from a hand-21
         # model: a letter = the hand held still (meta.json "segmentation").
@@ -53,7 +57,7 @@ class SignSession:
 
     def _event_for(self, clip):
         try:
-            res = self.model.predict(clip)
+            res = self.model.predict(clip, self.aspect)
         except Exception as error:  # noqa: BLE001 — a broken model must not end the session
             print(f"[ai] sign {self.model.language}/{self.model.unit} prediction failed: {error}", flush=True)
             return {"type": "hint", "message": "Sign reading isn't working right now. Please try again later."}
@@ -110,6 +114,7 @@ class SignSession:
                 if packed[OFF_LHAND:OFF_POSE, 2].any():
                     frames_with_hands += 1
                 aspect = frame.shape[1] / frame.shape[0]
+                self.aspect = aspect
                 clip = self.segmenter.update(t, packed, aspect, self.model.fixed_seconds)
                 if clip is not None:
                     events.append(self._event_for(clip))

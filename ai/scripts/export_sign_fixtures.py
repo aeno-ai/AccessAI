@@ -33,6 +33,12 @@ TESTER = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / "Downloads" /
 OUT = AI.parent / "frontend" / "scripts" / "fixtures" / "sign-fixtures.json"
 CASES_PER_LANGUAGE = 3
 FPS = 30.0
+PHONE_ASPECT = 720 / 1280  # CameraX 1280x720 turned upright
+
+
+def unstretched(model):
+    """The aspect at which registry.shape_for_model leaves x as it is."""
+    return 1.0 if model.aspect_corrected else registry.LEGACY_TRAINING_ASPECT
 
 
 def r(a):
@@ -81,7 +87,9 @@ def main():
                 continue
             norm = normalize(seq[None])[0]
             feats = make_features(norm[None], **model.features)[0]
-            res = model.predict(raw)
+            # An aspect that stretches nothing: this case checks the pipeline
+            # on the raw numbers (the stretch has its own case, "shapes").
+            res = model.predict(raw, unstretched(model))
             cases.append({
                 "name": f"{language}/{path.parent.name}/{path.stem}",
                 "language": language,
@@ -118,11 +126,33 @@ def main():
             if clip is not None:
                 cuts.append(len(clip))
         hand = registry.build_hand21(np.stack(frames))
-        holds.append({"frames": r(np.stack(frames).reshape(len(frames), -1)), "cuts": cuts, "hand21": r(hand[0]) if hand is not None else None})
+        # Each installed letters model's top 5 on these 42 numbers.
+        letters = {}
+        for language in registry.LANGUAGES:
+            letter_model = models[(language, "letters")]
+            if hand is not None and letter_model.available:
+                res = letter_model.predict(np.stack(frames), unstretched(letter_model))
+                letters[language] = [[int(i), round(float(p), 6)] for i, p in res["top"]]
+        holds.append({
+            "frames": r(np.stack(frames).reshape(len(frames), -1)),
+            "cuts": cuts,
+            "hand21": r(hand[0]) if hand is not None else None,
+            "letters": letters,
+        })
+
+    # The picture-shape stretch (registry.shape_for_model) on a portrait
+    # phone picture, for a model trained both ways.
+    sample = np.asarray(cases[0]["raw"], dtype=np.float32).reshape(-1, 69, 3)[:4] if cases else None
+    shapes = []
+    if sample is not None:
+        for corrected in (False, True):
+            shaped = registry.shape_for_model(sample, PHONE_ASPECT, corrected)
+            shapes.append({"aspect": PHONE_ASPECT, "corrected": corrected,
+                           "raw": r(sample.reshape(len(sample), -1)), "shaped": r(shaped.reshape(len(shaped), -1))})
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps({"cases": cases, "holds": holds}), encoding="utf-8")
-    print(f"{len(cases)} cases, {len(holds)} holds → {OUT} ({OUT.stat().st_size // 1024} KB)")
+    OUT.write_text(json.dumps({"cases": cases, "holds": holds, "shapes": shapes}), encoding="utf-8")
+    print(f"{len(cases)} cases, {len(holds)} holds, {len(shapes)} shapes → {OUT} ({OUT.stat().st_size // 1024} KB)")
 
 
 if __name__ == "__main__":

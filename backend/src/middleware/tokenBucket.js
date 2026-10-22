@@ -17,8 +17,9 @@
 // The token bucket serves bursts at once and still caps the long-run rate;
 // the block makes a spammer stop instead of getting a token every 0.5 s.
 //
-// State lives in this process's memory (one Map), like the other limiters.
-// Running several server copies would need a shared store (HANDOFF §19).
+// State lives in this process's memory (one Map), like the other limiters —
+// or, with several server copies, in MongoDB (`shared`, RATE_LIMIT_STORE=mongo,
+// HANDOFF §52), where the same rules run as one atomic update.
 
 const SWEEP_MS = 5 * 60 * 1000;
 
@@ -40,6 +41,9 @@ function createTokenBucketLimiter({
   log = (line) => console.warn(line),
   // Told about each refused request (the activity log, HANDOFF.md §41).
   onRefuse = () => {},
+  // Several server copies: (key, now, settings) => Promise<decision> from a
+  // shared store (sharedRateStores.js takeSharedToken). None: this memory.
+  shared = null,
 }) {
   // key → { tokens, updatedAt, refusals, windowStart, blockedUntil }
   const buckets = new Map();
@@ -79,11 +83,10 @@ function createTokenBucketLimiter({
     return res.status(status).json({ message: text });
   };
 
-  const middleware = (req, res, next) => {
-    if (skip(req)) return next();
-    const key = keyGenerator(req);
-    const t = now();
-
+  // One request against `key`'s bucket in this process's memory →
+  // { outcome: 'ok' | 'empty' | 'blocked' | 'blockedNow', tokens, blockedUntil }.
+  // `shared` (sharedRateStores.js) makes the same decision in MongoDB instead.
+  const decideHere = (key, t) => {
     let bucket = buckets.get(key);
     if (!bucket) {
       makeRoom(t);
@@ -91,37 +94,55 @@ function createTokenBucketLimiter({
       buckets.set(key, bucket);
     }
     refill(bucket, t);
-
-    res.set('RateLimit-Limit', String(capacity));
-
-    if (bucket.blockedUntil > t) {
-      res.set('RateLimit-Remaining', '0');
-      onRefuse(req, { blocked: true });
-      return refuse(res, 429, blockedMessage, (bucket.blockedUntil - t) / 1000);
-    }
-
+    if (bucket.blockedUntil > t) return { outcome: 'blocked', tokens: bucket.tokens, blockedUntil: bucket.blockedUntil };
     if (bucket.tokens >= 1) {
       bucket.tokens -= 1;
-      res.set('RateLimit-Remaining', String(Math.floor(bucket.tokens)));
-      res.set('RateLimit-Reset', String(Math.ceil((capacity - bucket.tokens) / refillPerSecond)));
-      return next();
+      return { outcome: 'ok', tokens: bucket.tokens, blockedUntil: 0 };
     }
-
     // Empty: count the refusal; enough of them close together earn a block.
     if (t - bucket.windowStart > blockWindowMs) {
       bucket.windowStart = t;
       bucket.refusals = 0;
     }
     bucket.refusals += 1;
-    res.set('RateLimit-Remaining', '0');
-    onRefuse(req, { blocked: bucket.refusals >= blockAfter });
     if (bucket.refusals >= blockAfter) {
       bucket.blockedUntil = t + blockMs;
       bucket.refusals = 0;
+      return { outcome: 'blockedNow', tokens: bucket.tokens, blockedUntil: bucket.blockedUntil };
+    }
+    return { outcome: 'empty', tokens: bucket.tokens, blockedUntil: 0 };
+  };
+
+  const respond = (req, res, next, key, t, { outcome, tokens, blockedUntil }) => {
+    res.set('RateLimit-Limit', String(capacity));
+    if (outcome === 'ok') {
+      res.set('RateLimit-Remaining', String(Math.floor(tokens)));
+      res.set('RateLimit-Reset', String(Math.ceil((capacity - tokens) / refillPerSecond)));
+      return next();
+    }
+    res.set('RateLimit-Remaining', '0');
+    onRefuse(req, { blocked: outcome !== 'empty' });
+    if (outcome === 'blocked') return refuse(res, 429, blockedMessage, (blockedUntil - t) / 1000);
+    if (outcome === 'blockedNow') {
       log(`[rate] blocked ${key} for ${Math.round(blockMs / 60000)} min`);
       return refuse(res, 429, blockedMessage, blockMs / 1000);
     }
-    return refuse(res, 429, message, (1 - bucket.tokens) / refillPerSecond);
+    return refuse(res, 429, message, (1 - tokens) / refillPerSecond);
+  };
+
+  const middleware = (req, res, next) => {
+    if (skip(req)) return next();
+    const key = keyGenerator(req);
+    const t = now();
+    if (!shared) return respond(req, res, next, key, t, decideHere(key, t));
+    shared(key, t, { capacity, refillPerSecond, blockAfter, blockWindowMs, blockMs })
+      .then((decision) => respond(req, res, next, key, t, decision))
+      .catch((error) => {
+        // The shared store can't be reached: let the request through rather
+        // than refuse everyone (the database is needed for the request anyway).
+        console.error('[rate] shared limit check failed:', error.message);
+        next();
+      });
   };
 
   middleware.sweep = sweep;

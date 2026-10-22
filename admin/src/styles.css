@@ -759,6 +759,45 @@ textarea:focus-visible {
   height: 1.1rem;
 }
 
+/* ---------- Suspicious Activities (HANDOFF.md §52) ---------- */
+
+.severity-summary {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+
+.severity-summary li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.rules {
+  margin-top: 1rem;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 0.75rem 1.25rem;
+}
+
+.rules summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.rules ul {
+  margin: 0.75rem 0 0.25rem;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+/* Only the cards themselves (not the flag lines inside them). */
 .review-list {
   list-style: none;
   margin: 1.25rem 0 0;
@@ -767,11 +806,20 @@ textarea:focus-visible {
   gap: 0.75rem;
 }
 
-.review-list li {
+.review-list > li {
   background: var(--color-surface);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 1rem 1.25rem;
+  border-left: 4px solid var(--color-border);
+}
+
+.review-list > li.review-high {
+  border-left-color: var(--color-danger);
+}
+
+.review-list > li.review-medium {
+  border-left-color: #d89b00;
 }
 
 .review-head {
@@ -782,9 +830,295 @@ textarea:focus-visible {
   font-weight: 600;
 }
 
+.review-name {
+  font-size: 1.05rem;
+}
+
+.review-when {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 0.875rem;
+}
+
 .review-signs {
-  margin: 0.5rem 0 0;
-  padding-left: 1.25rem;
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.review-signs > li {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-small);
+  background: var(--color-canvas);
+}
+
+.review-addresses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+/* ---------- Dashboard (HANDOFF.md §52) ---------- */
+
+.dashboard-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.dashboard-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.segmented {
+  display: inline-flex;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 3px;
+}
+
+.segmented button {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.segmented button.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.segmented button:focus-visible {
+  outline: 3px solid var(--color-primary-dark);
+  outline-offset: 2px;
+}
+
+.small {
+  font-size: 0.8125rem;
+}
+
+.dashboard-body.is-loading {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.kpis {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.75rem;
+}
+
+.kpi > a,
+.kpi:not(:has(> a)) {
+  display: grid;
+  gap: 0.15rem;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 0.9rem 1rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.kpi > a:hover {
+  outline: 2px solid var(--color-primary-light);
+}
+
+.kpi-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.kpi-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-detail {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}
+
+.section-title {
+  margin: 2rem 0 0;
+  font-size: 1.15rem;
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.chart-card {
+  margin: 0;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1rem 1.1rem 0.75rem;
+  min-width: 0;
+}
+
+.chart-card.chart-wide {
+  grid-column: 1 / -1;
+}
+
+.chart-card h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.chart-card figcaption p {
+  margin: 0.15rem 0 0;
+  font-size: 0.8125rem;
+}
+
+.chart-body {
+  margin-top: 0.75rem;
+}
+
+.chart-empty {
+  padding: 1.5rem 0;
+}
+
+.chart-table {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.chart-table summary {
+  cursor: pointer;
+  color: var(--color-primary-dark);
+  font-weight: 600;
+}
+
+.chart-table .table-wrap {
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 0.5rem;
+}
+
+.breakdown {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.breakdown li {
+  display: grid;
+  grid-template-columns: minmax(110px, 38%) 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.875rem;
+}
+
+.breakdown-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breakdown-track {
+  height: 10px;
+  background: var(--color-canvas);
+  border-radius: 999px;
+}
+
+.breakdown-bar {
+  display: block;
+  height: 100%;
+  background: #2a78d6;
+  border-radius: 999px;
+}
+
+.breakdown-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.heatmap {
+  display: grid;
+  grid-template-columns: 36px repeat(24, minmax(10px, 1fr));
+  gap: 3px;
+  align-items: center;
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary);
+  overflow-x: auto;
+}
+
+.heatmap-row {
+  display: contents;
+}
+
+.heatmap-hour {
+  white-space: nowrap;
+}
+
+.heatmap-cell {
+  display: block;
+  aspect-ratio: 1.6 / 1;
+  min-height: 14px;
+  border-radius: 3px;
+}
+
+.heatmap-legend {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 0.4rem;
+}
+
+.heatmap-legend .heatmap-cell {
+  width: 22px;
+  aspect-ratio: auto;
+  height: 12px;
+  min-height: 0;
+}
+
+@media (max-width: 800px) {
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+  .review-when {
+    margin-left: 0;
+  }
 }
 
 /* ---------- Network addresses, hidden until "Show addresses" ---------- */

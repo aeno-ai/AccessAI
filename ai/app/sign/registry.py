@@ -2,11 +2,13 @@
 
 Models live in ai/models/sign/<language>/<unit>/:
 
-    ai/models/sign/fsl/words/    model.keras + labels.json   (FSL-105, 105 words)
-    ai/models/sign/asl/words/    model.keras + labels.json   (WLASL, 125 words)
-                                 + features.json
-    ai/models/sign/fsl/letters/  empty until the letter model is trained
-    ai/models/sign/asl/letters/  empty until the letter model is trained
+    ai/models/sign/fsl/words/    model.keras + labels.json + meta.json + features.json
+                                 (FSL-105, 105 words; hand + velocity)
+    ai/models/sign/asl/words/    model.keras + labels.json + meta.json + features.json
+                                 (WLASL, 125 words; hand)
+    ai/models/sign/fsl/letters/  model.keras + labels.json + meta.json (hand-21, A-Z)
+    ai/models/sign/asl/letters/  model.keras + labels.json + meta.json (hand-21, A-Z)
+    (all four retrained 2026-10-19/21 on real picture proportions: aspect_corrected)
 
 To swap or add a model: put model.keras (or model.tflite) and labels.json
 from the SAME training run in the folder, then restart the AI service. An
@@ -53,13 +55,32 @@ DEFAULTS = {
 }
 
 
+# The picture shape the older models were trained on (landscape videos).
+# MediaPipe's x is a share of the picture's width and y of its height, so
+# the same body comes out stretched differently on a portrait phone picture
+# (HANDOFF.md §49). Same rule as frontend/src/sign/features.ts shapeForModel.
+LEGACY_TRAINING_ASPECT = 16 / 9
+
+
+def shape_for_model(frames, aspect, aspect_corrected):
+    """(n, 69, 3) raw frames -> x stretched to the proportions the model was
+    trained with: real proportions (x * width / height) for models trained
+    that way (`aspect_corrected`), else those of a 16:9 training video.
+    `aspect` = the picture's width / height."""
+    factor = aspect if aspect_corrected else aspect / LEGACY_TRAINING_ASPECT
+    if factor == 1:
+        return frames
+    shaped = np.array(frames, dtype=np.float32, copy=True)
+    shaped[..., 0] *= factor
+    return shaped
+
+
 def normalize_hand(hand):
     """(21, 2) hand points -> the numbers a hand-21 letters model reads.
 
-    PLACEHOLDER until the letters notebook exists: copy its normalization
-    here EXACTLY (and keep the tester the same), or the model gets numbers
-    it never saw and is wrong without any error. This default is the usual
-    one: relative to the wrist, scaled so the hand's size is 1.
+    The letters notebooks' normalize_hand (2026-10-19): relative to the wrist,
+    divided by the largest wrist distance. Their x * width / height step is
+    shape_for_model's job (done before this), so the two match exactly.
     """
     relative = hand - hand[0]
     size = float(np.max(np.linalg.norm(relative, axis=1)))
@@ -113,15 +134,20 @@ class SignModel:
     segmentation: str = "auto"
     # Extra numbers per frame besides the base 207 (features.json).
     features: dict = field(default_factory=lambda: {"hand": False, "velocity": False})
+    # Trained on real picture proportions (features.json or meta.json
+    # "aspect_corrected"); older models on 16:9 videos.
+    aspect_corrected: bool = False
     problem: str | None = None
 
     @property
     def available(self):
         return self.runner is not None
 
-    def predict(self, frames):
+    def predict(self, frames, aspect=LEGACY_TRAINING_ASPECT):
         """frames: (n, 69, 3) raw landmarks -> dict with the top 5, or an error.
-        Same checks as the tester's Lang.predict."""
+        `aspect` = the picture's width / height (the default leaves older
+        models' input unchanged). Same checks as the tester's Lang.predict."""
+        frames = shape_for_model(frames, aspect, self.aspect_corrected)
         if self.input == "hand-21":
             x = build_hand21(frames)
             if x is None:
@@ -171,6 +197,7 @@ def _load(language, unit):
                 model.fixed_seconds = meta["fixed_seconds"]
             if "min_confidence" in meta:
                 model.min_confidence = float(meta["min_confidence"])
+            model.aspect_corrected = bool(meta.get("aspect_corrected", False))
         except (ValueError, TypeError) as error:
             model.problem = f"meta.json is not valid: {error}"
             return model
@@ -202,6 +229,7 @@ def _load(language, unit):
             if features_path.exists():
                 wanted = json.loads(features_path.read_text(encoding="utf-8"))
                 model.features = {key: bool(wanted.get(key, False)) for key in ("hand", "velocity")}
+                model.aspect_corrected = model.aspect_corrected or bool(wanted.get("aspect_corrected", False))
         except (ValueError, TypeError, AttributeError) as error:
             model.problem = f"features.json is not valid: {error}"
             return model

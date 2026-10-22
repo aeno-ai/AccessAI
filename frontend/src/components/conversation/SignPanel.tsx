@@ -5,6 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { SignOptionsSheet } from '@/components/conversation/SignOptionsSheet';
 import { SignCamera } from '@/components/sign/SignCamera';
 import { SIGN_LANGUAGE_NAMES, signChoiceLabel } from '@/components/sign/SignChoices';
+import { SignHelpSheet } from '@/components/sign/SignHelpSheet';
+import { PHASE_TEXT } from '@/components/sign/signText';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
 import { usePreferences, type SignLanguage, type SignUnit } from '@/hooks/use-preferences';
 import {
@@ -43,15 +45,6 @@ const cameraHeight = (screenHeight: number, large: boolean) =>
 // The sign camera screen: room left for the words below it.
 const fullCameraHeight = (screenHeight: number) => Math.round(Math.min(560, Math.max(320, screenHeight * 0.5)));
 
-const PHASE_TEXT = {
-  off: 'Starting the camera…',
-  starting: 'Getting ready…',
-  WAIT: 'Watching — sign whenever you’re ready',
-  SIGN: 'Signing…',
-  TAIL: 'Reading the sign…',
-  paused: 'Paused',
-} as const;
-
 /**
  * Sign language mode, inside the message box: the camera, one button for
  * the language and words/letters (opens SignOptionsSheet), and what's
@@ -71,6 +64,8 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords, size = 'n
   const showLandmarks = __DEV__ && prefs.signShowLandmarks;
   const models = useSignModels();
   const [optionsOpen, setOptionsOpen] = useState(false);
+  // "How to sign": opens by itself the first time the camera is on.
+  const [helpOpen, setHelpOpen] = useState(false);
   const [choices, setChoices] = useState<string[]>([]);
   const [hint, setHint] = useState('');
   const pauseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -115,6 +110,12 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords, size = 'n
     if (phase === 'SIGN' || phase === 'TAIL') clearTimeout(pauseTimer.current);
   }, [phase]);
   useEffect(() => () => clearTimeout(pauseTimer.current), []);
+  // Shown by itself until it has been seen once (no effect needed).
+  const showHelp = helpOpen || (hasPermission && signReadingAvailable && !prefs.signHelpSeen);
+  const closeHelp = () => {
+    setHelpOpen(false);
+    if (!prefs.signHelpSeen) setPref('signHelpSeen', true);
+  };
 
   if (!signReadingAvailable) {
     return (
@@ -180,6 +181,7 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords, size = 'n
       </View>
 
       <SignOptionsSheet visible={optionsOpen} models={models} onClose={() => setOptionsOpen(false)} />
+      <SignHelpSheet visible={showHelp} unit={unit} onClose={closeHelp} />
 
       {choices.length ? (
         <View style={styles.choices}>
@@ -208,6 +210,15 @@ export function SignPanel({ onWord, onUndoWord, onPause, pendingWords, size = 'n
       ) : null}
 
       <View style={styles.actions}>
+        <Pressable
+          style={styles.secondary}
+          onPress={() => setHelpOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={unit === 'letters' ? 'How to spell with letters' : 'How to sign words'}
+        >
+          <Ionicons name="help-circle-outline" size={18} color={colors.primary} />
+          <Text style={styles.secondaryText}>How to sign</Text>
+        </Pressable>
         {phase === 'paused' ? (
           <Pressable style={styles.primary} onPress={resume} accessibilityRole="button">
             <Text style={styles.primaryText}>Resume</Text>
@@ -333,6 +344,7 @@ const makeStyles = (t: AppTheme) =>
     },
     actions: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       gap: 8,
     },
     primary: {

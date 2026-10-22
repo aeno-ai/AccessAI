@@ -19,10 +19,11 @@ Background on how the pieces work: [`ai/README.md`](README.md).
 
 ```
 ai/models/sign/
-  asl/words/     WLASL     (125 signs)   ✓ installed (+ features.json: hand shapes)
-  fsl/words/     FSL-105   (105 signs)   ✓ installed
-  asl/letters/   ASL fingerspelling      — not trained yet
-  fsl/letters/   FSL fingerspelling      — not trained yet
+  asl/words/     WLASL     (125 signs)   ✓ retrained 2026-10-19 (hand features; test 61.2% / top-5 76.8%)
+  fsl/words/     FSL-105   (105 signs)   ✓ retrained 2026-10-21 (hand + velocity; test 79.3% / top-5 94.9%)
+  asl/letters/   ASL A–Z   (hand-21)     ✓ 2026-10-19 (test 94.7% / top-5 98.0%; J, Z unmeasured)
+  fsl/letters/   FSL A–Z   (hand-21)     ✓ 2026-10-19 (test 96.1% / top-5 98.7%; Z weak, no Ñ/NG)
+  All four: aspect_corrected (trained on real picture proportions) — HANDOFF.md §52.
 ```
 
 Each folder takes:
@@ -109,7 +110,7 @@ The server feeds the model exactly what the notebooks trained on, using code cop
 
 ## C. Letters (fingerspelling) models
 
-**Ready and waiting (2026-10-08).** Both letters slots, the app's letter-joining and the spelling fix are built. What's left depends on the input the letters notebooks use, which isn't decided yet.
+**Installed 2026-10-21 (HANDOFF.md §52):** both letters models are `hand-21` (one hand, one frame, 42 numbers), read with `HoldSegmenter`. Their notebooks' `normalize_hand` (wrist-relative, ÷ largest wrist distance, after x × width ÷ height) is exactly `registry.normalize_hand` and `features.ts normalizeHand` once `shape_for_model` has stretched x; `sign-check` compares both letters models' top 5 with NumPy.
 
 Drop the files into `ai/models/sign/<fsl|asl>/letters/` (the `PUT_MODEL_FILES_HERE.txt` there says the same). Labels look like `{"0": "A", "1": "B", …}`. Then pick the `meta.json` that matches the model:
 

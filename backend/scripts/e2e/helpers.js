@@ -127,6 +127,15 @@ async function adminApi(method, route, admin, body) {
   return answerOf(response);
 }
 
+// The same, for a download (CSV): the status, content type and raw text.
+async function adminRaw(method, route, admin) {
+  const response = await fetch(`${BASE}/api/admin${route}`, {
+    method,
+    headers: admin ? { Cookie: `admin_session=${admin.session}` } : {},
+  });
+  return { status: response.status, type: response.headers.get('content-type') ?? '', text: await response.text() };
+}
+
 // A live socket like the app's, collecting every event it receives.
 async function openSocket(user) {
   const socket = io(BASE, { auth: { token: user.token }, transports: ['websocket'], reconnection: false });
@@ -182,4 +191,4 @@ async function cleanup() {
 
 const summary = () => ({ passed, failed });
 
-module.exports = { BASE, runAddress, check, connect, makeUser, makeAdmin, befriend, api, adminApi, openSocket, waitFor, sleep, cleanup, summary };
+module.exports = { BASE, runAddress, check, connect, makeUser, makeAdmin, befriend, api, adminApi, adminRaw, openSocket, waitFor, sleep, cleanup, summary };

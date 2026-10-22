@@ -65,6 +65,31 @@ export async function apiFetch<T = unknown>(endpoint: string, options: RequestIn
   return data;
 }
 
+// A CSV download (HANDOFF.md §52): fetched with the session cookie, then
+// handed to the browser as a file with the name the server chose.
+export async function apiDownload(endpoint: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${endpoint}`, { credentials: 'include' });
+  } catch {
+    throw new ApiError('Could not reach the server. Check your connection and try again.', 0);
+  }
+  if (!response.ok) {
+    if (response.status === 401) unauthorizedListeners.forEach((listener) => listener());
+    const body = (await response.json().catch(() => ({}))) as ErrorBody;
+    throw new ApiError(body.errors?.[0]?.message ?? body.message ?? 'The download failed', response.status, body.code);
+  }
+  const name = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ?? 'accessai-export.csv';
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong';
 }

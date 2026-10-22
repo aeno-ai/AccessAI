@@ -5,15 +5,18 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { Ionicons } from '@expo/vector-icons';
 import { useBigText } from '@/components/conversation/BigTextHost';
 import { SignPanel } from '@/components/conversation/SignPanel';
+import { SignHelpSheet } from '@/components/sign/SignHelpSheet';
+import { TranslateButtons } from '@/components/sign/TranslateButtons';
+import { IconButton } from '@/components/ui/IconButton';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { ScreenShell } from '@/components/ui/ScreenShell';
 import { MaxContentWidth } from '@/constants/theme';
 import { useAppTheme, useThemedStyles, type AppTheme } from '@/hooks/use-app-theme';
-import { useIsOnline } from '@/hooks/use-is-online';
 import { usePreferences, type SignLanguage, type SignUnit } from '@/hooks/use-preferences';
+import { signReady, useSignModels } from '@/hooks/use-sign-recognition';
 import { useScreenReader } from '@/hooks/use-screen-reader';
 import { announce } from '@/utils/a11y';
-import { polishSigned } from '@/utils/signedText';
+import { polishSigned, TRANSLATE_NAMES, translateSigned, type TranslateTo } from '@/utils/signedText';
 import { speakMixed, stopMixed } from '@/utils/speechHelper';
 
 // This screen's own speech, so leaving stops only that.
@@ -24,26 +27,25 @@ const OWNER = 'sign-camera';
  * HANDOFF.md §37): sign in front of the camera, one sign after another.
  * The words show big as they're read; when signing pauses, the AI makes
  * them a proper sentence (the same tidy-up as the message box's sign mode)
- * and it's said out loud — no Send button. If the AI can't help, the plain
- * words are said. Needs the internet (signs are read on the AccessAI
- * server); nothing is saved.
+ * and it's said out loud — no Send button. Signs are read on the phone, so
+ * this works offline; only the sentence step needs the internet (offline,
+ * or if the AI can't help, the plain words are said). Nothing is saved.
+ * The "?" opens "How to sign" (SignHelpSheet).
  */
 export default function SignCameraScreen() {
-  const online = useIsOnline();
-  const styles = useThemedStyles(makeStyles);
-  const { colors } = useAppTheme();
+  const { prefs } = usePreferences();
+  const models = useSignModels();
+  const [helpOpen, setHelpOpen] = useState(false);
+  const unit: SignUnit = prefs.signUnit === 'letters' && signReady(models, prefs.signLanguage, 'letters') ? 'letters' : 'words';
 
   return (
     <ScreenShell maxWidth={MaxContentWidth.app}>
-      <ScreenHeader title="Sign language" />
-      {online ? (
-        <SignCamera />
-      ) : (
-        <View style={styles.offline}>
-          <Ionicons name="cloud-offline-outline" size={48} color={colors.textMuted} />
-          <Text style={styles.offlineText}>Sign reading needs the internet. Connect and try again.</Text>
-        </View>
-      )}
+      <ScreenHeader
+        title="Sign language"
+        right={<IconButton icon="help-circle-outline" label="How to sign" onPress={() => setHelpOpen(true)} />}
+      />
+      <SignCamera />
+      <SignHelpSheet visible={helpOpen} unit={unit} onClose={() => setHelpOpen(false)} />
     </ScreenShell>
   );
 }
@@ -61,19 +63,36 @@ function SignCamera() {
   const [live, setLive] = useState('');
   const [said, setSaid] = useState<string | null>(null);
   const [making, setMaking] = useState(false);
+  // The signed words behind `said` (for the offline word-by-word translation),
+  // and its translation (HANDOFF.md §52 E).
+  const saidWords = useRef<string[]>([]);
+  const [translation, setTranslation] = useState<{ to: TranslateTo; text: string; basic: boolean } | null>(null);
+  const [translateNote, setTranslateNote] = useState('');
 
   // Leaving the screen stops it talking.
   useFocusEffect(useCallback(() => () => stopMixed({ owner: OWNER }), []));
 
+  // `remember`: it becomes the "Said out loud" text (a translation doesn't).
   const sayIt = useCallback(
-    (text: string) => {
-      setSaid(text);
+    (text: string, remember = true) => {
+      if (remember) setSaid(text);
       // Said out loud for the person in front of them, even with a screen reader on.
       void speakMixed(text, { rate: prefs.speechRate, owner: OWNER });
       if (screenReader) announce(text);
     },
     [prefs.speechRate, screenReader],
   );
+
+  const translate = async (text: string, to: TranslateTo) => {
+    setTranslateNote('');
+    const result = await translateSigned(text, to, saidWords.current);
+    if (!result) {
+      setTranslateNote('Translating this needs the internet.');
+      return;
+    }
+    setTranslation({ to, ...result });
+    sayIt(result.text, false);
+  };
 
   const onWord = (sign: string, unit: SignUnit) => {
     const piece = sign.toLowerCase();
@@ -98,6 +117,9 @@ function SignCamera() {
   const onPause = async (language: SignLanguage, unit: SignUnit) => {
     const raw = words.current.join(' ');
     if (!raw) return;
+    saidWords.current = [...words.current];
+    setTranslation(null);
+    setTranslateNote('');
     words.current = [];
     spelling.current = false;
     setLive('');
@@ -139,10 +161,46 @@ function SignCamera() {
               <Text style={styles.actionText}>Big text</Text>
             </Pressable>
           </View>
+          <TranslateButtons onTranslate={(to) => translate(said, to)} />
+          {translateNote ? (
+            <Text style={styles.hint} accessibilityLiveRegion="polite">
+              {translateNote}
+            </Text>
+          ) : null}
         </View>
       ) : (
         <Text style={styles.hint}>Sign one word after another. When you pause, AccessAI says it out loud as a sentence.</Text>
       )}
+
+      {said && translation ? (
+        <View style={styles.saidCard}>
+          <Text style={styles.label}>
+            In {TRANSLATE_NAMES[translation.to]}
+            {translation.basic ? ' (sign by sign)' : ''}
+          </Text>
+          <Text style={styles.said}>{translation.text}</Text>
+          <View style={styles.row}>
+            <Pressable
+              style={styles.action}
+              onPress={() => sayIt(translation.text, false)}
+              accessibilityRole="button"
+              accessibilityLabel={`Say it in ${TRANSLATE_NAMES[translation.to]}`}
+            >
+              <Ionicons name="volume-high-outline" size={20} color={colors.primary} />
+              <Text style={styles.actionText}>Say it</Text>
+            </Pressable>
+            <Pressable
+              style={styles.action}
+              onPress={() => bigText.show(translation.text)}
+              accessibilityRole="button"
+              accessibilityLabel="Show the translation in Big text"
+            >
+              <Ionicons name="expand-outline" size={20} color={colors.primary} />
+              <Text style={styles.actionText}>Big text</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -153,19 +211,6 @@ const makeStyles = (t: AppTheme) =>
       gap: 12,
       padding: 12,
       paddingBottom: 40,
-    },
-    offline: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 14,
-      padding: 24,
-    },
-    offlineText: {
-      fontSize: t.font(17),
-      lineHeight: t.lineHeight(24),
-      color: t.colors.textPrimary,
-      textAlign: 'center',
     },
     wordsCard: {
       gap: 4,

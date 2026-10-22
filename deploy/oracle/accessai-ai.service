@@ -1,0 +1,17 @@
+# Laya's AI service (FastAPI), only reachable from this machine (127.0.0.1).
+# It waits for Ollama and loads the models itself. setup.sh fills in
+# __APP_DIR__ and __USER__.
+[Unit]
+Description=AccessAI AI service (Laya)
+After=network-online.target ollama.service
+Wants=ollama.service
+
+[Service]
+User=__USER__
+WorkingDirectory=__APP_DIR__/ai
+ExecStart=__APP_DIR__/ai/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --log-level warning
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
