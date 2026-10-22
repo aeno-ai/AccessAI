@@ -63,21 +63,25 @@ class IntentIndex:
     def _cache_file(self):
         return config.INDEX_DIR / f"{config.EMBED_MODEL.replace('/', '_').replace(':', '_')}.npz"
 
-    def _load(self, wanted):
+    def _read_cache(self):
+        """(meta, vectors) from the saved file, or (None, None)."""
         path = self._cache_file()
         if not path.exists():
-            return False
+            return None, None
         try:
             with np.load(path, allow_pickle=False) as data:
-                meta = json.loads(str(data["meta"]))
-                if meta.get("catalog_hash") != wanted:
-                    return False
-                self.vectors = _normalize(data["vectors"].astype(np.float32))
-                self.intents = meta["intents"]
-                self.documents = meta["documents"]
+                return json.loads(str(data["meta"])), data["vectors"].astype(np.float32)
         except (OSError, KeyError, ValueError):
+            return None, None
+
+    def _load(self, wanted):
+        meta, vectors = self._read_cache()
+        if meta is None or meta.get("catalog_hash") != wanted or len(meta["intents"]) != len(vectors):
             return False
-        return len(self.intents) == len(self.vectors)
+        self.vectors = _normalize(vectors)
+        self.intents = meta["intents"]
+        self.documents = meta["documents"]
+        return True
 
     def _save(self, wanted):
         config.INDEX_DIR.mkdir(parents=True, exist_ok=True)
@@ -97,11 +101,17 @@ class IntentIndex:
             for example in intent["examples"]:
                 intents.append(intent["id"])
                 documents.append(example)
-        log(f"Building the vector index: embedding {len(documents)} example sentences…")
-        embeddings = []
-        for start in range(0, len(documents), BATCH):
-            embeddings.extend(await _embed_with_retry(documents[start:start + BATCH], log))
-        self.vectors = _normalize(np.asarray(embeddings, dtype=np.float32))
+        # Sentences already in the saved file (same model) keep their numbers;
+        # only new or changed ones are embedded — the free Gemini plan counts
+        # every sentence.
+        meta, old_vectors = self._read_cache()
+        known = dict(zip(meta["documents"], old_vectors)) if meta and len(meta["documents"]) == len(old_vectors) else {}
+        missing = list(dict.fromkeys(doc for doc in documents if doc not in known))
+        log(f"Building the vector index: {len(documents)} example sentences, {len(missing)} to embed…")
+        for start in range(0, len(missing), BATCH):
+            batch = missing[start:start + BATCH]
+            known.update(zip(batch, np.asarray(await _embed_with_retry(batch, log), dtype=np.float32)))
+        self.vectors = _normalize(np.stack([known[doc] for doc in documents]))
         self.intents, self.documents = intents, documents
         self._save(wanted)
         log(f"Vector index ready ({len(documents)} example sentences).")

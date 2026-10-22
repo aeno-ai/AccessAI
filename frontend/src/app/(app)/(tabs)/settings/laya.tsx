@@ -107,7 +107,7 @@ export default function LayaSettingsScreen() {
       <View style={styles.card}>
         <ToggleRow
           label="Laya"
-          description="Made for blind and low-vision users. Anyone can turn it on. Adds the Laya button to every screen, and Magic Tap on iPhone (two-finger double-tap with VoiceOver)."
+          description="Made for blind and low-vision users. Anyone can turn it on. Adds the Laya button to every screen."
           value={prefs.layaEnabled}
           onValueChange={(value) => {
             setPref('layaEnabled', value);

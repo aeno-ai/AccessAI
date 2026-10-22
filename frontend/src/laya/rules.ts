@@ -73,6 +73,9 @@ const bigTextWords = (original: string): Slots | null => {
 };
 
 const RULES: Rule[] = [
+  // ---- "Papasa ba kami?" (the thesis defense joke): before anything else
+  { intent: 'fun.papasa', test: /\b(?:papasa|pasado|makakapasa|makapasa)\s+(?:ba\s+)?(?:kami|tayo)\b|\b(?:kami|tayo)\s+(?:ba\s+)?(?:ay\s+)?(?:papasa|pasado|makakapasa)\b|\b(?:will|are|do you think|think)\s+we\s+(?:going to\s+|gonna\s+|will\s+)?pass\b/u, confidence: 0.95 },
+
   // ---- Big text first: "show big text help me" shows the words, it isn't an SOS
   { intent: 'text.show_big', test: /^(?:show|display|put)\s+(?:it\s+|this\s+)?(?:in\s+)?(?:big|large|huge)\s+(?:text|letters)\s+\S|^big text\s+\S|^(?:ipakita|pakita)(?: mo)?\s+(?:nang\s+malaki|sa\s+malaking\s+(?:sulat|letra))\s+\S|^malaking sulat\s+\S/u, confidence: 0.92,
     slots: bigTextWords },

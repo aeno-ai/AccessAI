@@ -375,6 +375,9 @@ export const INTENTS = {
   'blocked.account': { label: 'account changes', category: 'Go to', confirm: false },
   // Other apps, phone settings, calls (other than SOS), the web.
   'blocked.outside': { label: 'other apps', category: 'Go to', confirm: false },
+  // "Papasa ba kami?" — a joke for the thesis defense (2026-10-23). No guide
+  // entry, so it never shows in the list of commands.
+  'fun.papasa': { label: 'will we pass', category: 'Go to', confirm: false },
   none: { label: 'nothing', category: 'Go to', confirm: false },
 } satisfies Record<string, IntentInfo>;
 

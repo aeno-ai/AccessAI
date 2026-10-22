@@ -30,6 +30,7 @@ const siSina = (names: string[], lang: Lang) => `${names.length > 1 ? 'sina' : '
 
 export const P = {
   // ---------------------------------------------------------------- the dialog
+  papasaBa: { en: 'You are going to succeed?', fil: 'Papasa kayo syempre. Magaganda at Pogi ang panel niyo eh.' },
   yes: { en: 'Yes', fil: 'Oo' },
   no: { en: 'No', fil: 'Hindi' },
   yesQuestion: { en: 'Yes?', fil: "Ano 'yon?" },
@@ -65,7 +66,7 @@ export const P = {
   takeYouTo: (place: string): Line => ({ en: `You want me to take you to ${place}?`, fil: `Gusto mo bang pumunta sa ${place}?` }),
   opening: (place: string): Line => ({ en: `Opening ${place}.`, fil: `Binubuksan ko na ang ${place}.` }),
   openingConversation: {
-    en: 'Opening Conversation mode. The microphone will turn on — start talking after the beep.',
+    en: 'Opening Conversation mode. The microphone will turn on.',
     fil: 'Binubuksan ko na ang Conversation mode. Mag-o-on ang mikropono — magsalita ka pagkatapos ng beep.',
   },
   goBackQuestion: { en: 'Go back to the previous screen?', fil: 'Babalik ba tayo sa naunang screen?' },
@@ -250,7 +251,7 @@ export const P = {
   },
   didntCatch: {
     en: 'Sorry, I didn’t catch that. Say "what can I say" to hear what I can do.',
-    fil: 'Pasensya na, hindi ko nakuha. Sabihin ang "ano ang pwede kong sabihin" para marinig mo ang kaya ko.',
+    fil: 'Pasensya na, hindi ko nakuha. Sabihin ang "ano ang pwede kong sabihin" para marinig mo ang kaya ko gawin para sayo.',
   },
   errorTryAgain: { en: "That didn't work. Please try again.", fil: 'Hindi gumana. Pakisubukan mo ulit.' },
 

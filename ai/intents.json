@@ -1086,6 +1086,20 @@
       ]
     },
     {
+      "id": "fun.papasa",
+      "description": "Asking whether the team will pass (their thesis defense, the panel, the grade) — Laya answers with a joke",
+      "slots": [],
+      "examples": [
+        "papasa ba kami",
+        "papasa ba tayo sa defense",
+        "pasado ba kami",
+        "makakapasa ba kami sa thesis",
+        "will we pass",
+        "are we going to pass the defense",
+        "do you think we will pass our thesis"
+      ]
+    },
+    {
       "id": "none",
       "description": "Not a command for the app: small talk, questions about the world, or noise",
       "slots": [],

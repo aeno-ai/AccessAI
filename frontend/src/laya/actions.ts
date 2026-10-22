@@ -561,6 +561,9 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: LayaContext):
     case 'blocked.outside':
       return say(t(P.onlyInsideAccessAI));
 
+    case 'fun.papasa':
+      return say(t(P.papasaBa));
+
     case 'read.repeat':
       return say(ctx.lastSpoken ?? t(P.nothingSaidYet));
 
