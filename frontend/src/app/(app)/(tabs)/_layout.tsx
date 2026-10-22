@@ -54,6 +54,9 @@ export default function TabsLayout() {
         // Labels grow with the text size setting, but less than body text so
         // five of them still fit across a phone.
         tabBarLabelStyle: { fontSize: Math.min(font(11), 14), fontWeight: weight('600') },
+        // The phone's own font size would enlarge them past that cap and
+        // squash the five labels into each other (HANDOFF §56).
+        tabBarAllowFontScaling: false,
       }}
     >
       <Tabs.Screen
