@@ -84,8 +84,8 @@ function learnLine(ctx: LayaContext): string {
   const fil = lang === 'fil';
   if (!prefs.signLanguageChosen) {
     return fil
-      ? 'Pumili ng sign language na pag-aaralan: Filipino Sign Language o American Sign Language.'
-      : 'Choose a sign language to learn: Filipino Sign Language or American Sign Language.';
+      ? 'Pumili ng sign language na pag-aaralan: Filipino Sign Language o American Sign Language. Puwede mong sabihin: "Matuto ng FSL" o "Matuto ng ASL".'
+      : 'Choose a sign language to learn: Filipino Sign Language or American Sign Language. You can say "Learn FSL" or "Learn ASL".';
   }
   const course = prefs.signLanguage;
   const progress = courseProgress(course, learn.completions);

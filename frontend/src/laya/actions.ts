@@ -1,5 +1,6 @@
 import { router, type Href } from 'expo-router';
 import { apiFetch } from '@/api/apiClient';
+import { SIGN_LANGUAGE_NAMES } from '@/components/sign/SignChoices';
 import { labelOf, screenOf, type IntentId, type Slots } from '@/laya/catalog';
 import { chatFriend, chatMessages, lineFor, nameOf, pageFromNewest, spokenAgo, unreadFrom } from '@/laya/chat';
 import { matchFriend, spellCode, stripFillers } from '@/laya/language';
@@ -558,6 +559,23 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: LayaContext):
         run: async () => ({ say: t(P.opening('Practice')), after: go('/learn-practice' as Href) }),
       };
 
+    case 'learn.language': {
+      const language = slots.value === 'asl' || slots.value === 'fsl' ? slots.value : null;
+      if (!language) return say(t(P.learnLanguageHowTo));
+      const name = SIGN_LANGUAGE_NAMES[language];
+      if (ctx.prefs.signLanguageChosen && ctx.prefs.signLanguage === language) {
+        return { kind: 'do', run: async () => ({ say: t(P.learnLanguageAlready(name)), after: go('/learn') }) };
+      }
+      return {
+        kind: 'do',
+        run: async () => {
+          ctx.setPref('signLanguage', language);
+          ctx.setPref('signLanguageChosen', true);
+          return { say: t(P.learnLanguageDone(name)), after: go('/learn') };
+        },
+      };
+    }
+
     case 'blocked.outside':
       return say(t(P.onlyInsideAccessAI));
 
@@ -677,7 +695,7 @@ export async function planFor(intent: IntentId, slots: Slots, ctx: LayaContext):
     }
 
     case 'voice.change': {
-      const value = slots.value;
+      const value = slots.value === 'man' || slots.value === 'woman' || slots.value === 'auto' ? slots.value : undefined;
       if (!value) return say(t(P.voiceHowTo));
       const name = t(value === 'man' ? P.voiceMan : value === 'woman' ? P.voiceWoman : P.voiceNormal);
       return {

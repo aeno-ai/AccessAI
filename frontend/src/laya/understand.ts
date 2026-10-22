@@ -20,7 +20,7 @@ function cleanSlots(slots: unknown): Slots {
   if (typeof raw.friendName === 'string') result.friendName = raw.friendName.slice(0, 40);
   if (typeof raw.messageText === 'string') result.messageText = raw.messageText.slice(0, 300);
   if (typeof raw.friendCode === 'string' && /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(raw.friendCode)) result.friendCode = raw.friendCode;
-  if (raw.value === 'man' || raw.value === 'woman' || raw.value === 'auto') result.value = raw.value;
+  if (raw.value === 'man' || raw.value === 'woman' || raw.value === 'auto' || raw.value === 'fsl' || raw.value === 'asl') result.value = raw.value;
   return result;
 }
 

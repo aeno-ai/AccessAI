@@ -359,6 +359,14 @@ export const INTENTS = {
     guide: { en: 'Start the next lesson', fil: 'Simulan ang lesson' },
   },
   'learn.practice': { label: 'sign practice', category: 'Learn', confirm: true, guide: { en: 'Practise signs', fil: 'Mag-practice ng signs' } },
+  // Which sign language Learn teaches (also what the sign camera reads) — HANDOFF §56.
+  'learn.language': {
+    label: 'the sign language to learn',
+    labelFil: 'ang sign language na pag-aaralan',
+    category: 'Learn',
+    confirm: false,
+    guide: { en: 'Learn ASL', fil: 'Matuto ng FSL' },
+  },
   'learn.choose': { label: 'an answer', category: 'Learn', confirm: false, screen: 'a Learn lesson', guide: { en: 'The first one', fil: 'Yung pangalawa' } },
   'learn.check': { label: 'check the answer', category: 'Learn', confirm: false, screen: 'a Learn lesson', guide: { en: 'Check', fil: 'I-check' } },
   'learn.continue': { label: 'continue', category: 'Learn', confirm: false, screen: 'a Learn lesson', guide: { en: 'Continue', fil: 'Tuloy' } },
@@ -398,7 +406,7 @@ export type Slots = {
   /** Words to send or say aloud — or to show in Big text. */
   messageText?: string;
   friendCode?: string;
-  value?: 'man' | 'woman' | 'auto';
+  value?: 'man' | 'woman' | 'auto' | 'fsl' | 'asl';
   /** "Quick reply 2", "the first one" (1-based). The phone's rules only. */
   number?: number;
   /** "Sign mode on / off". The phone's rules only. */

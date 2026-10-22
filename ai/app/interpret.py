@@ -43,7 +43,7 @@ SYSTEM_PROMPT = (
     "was not said."
 )
 
-VALUE_CHOICES = ["man", "woman", "auto"]
+VALUE_CHOICES = ["man", "woman", "auto", "fsl", "asl"]
 
 
 def sanitize(text):

@@ -249,6 +249,9 @@ const RULES: Rule[] = [
 
   // ---- going places (most specific first)
   { intent: 'learn.next_lesson', test: /\b(?:next|start|begin|continue|resume|simulan|ituloy)\b.*\b(?:lesson|level|aralin)\b|\bnext lesson\b/u, confidence: 0.9 },
+  // "Learn ASL", "switch to FSL", "matuto ng American Sign Language" (before the general nav.learn below)
+  { intent: 'learn.language', test: /\b(?:learn|study|switch(?: learn(?:ing)?)? to|change(?: learn(?:ing)?)?(?: language)? to|use|matuto(?: ng)?|mag-?aral(?: ng)?|pag-?aralan|aralin|lipat sa|palitan sa)\b.*\b(?:asl|fsl|american sign(?: language)?|filipino sign(?: language)?)\b|^(?:asl|fsl)(?: please| po)?$/u, confidence: 0.92,
+    slots: (original) => ({ value: /\b(?:asl|american)\b/i.test(original) ? 'asl' : 'fsl' }) },
   { intent: 'learn.practice', test: /\b(?:sign practice|practi[sc]e (?:mode|signs|screen|page)|open practi[sc]e|mag-?practi[sc]e (?:ng )?signs?)\b/u, confidence: 0.9 },
   // The camera that reads signs and says them out loud (Home's Sign language card).
   { intent: 'nav.sign_camera', test: /\bsign(?:ing)?(?: language)? camera\b|\bcamera (?:for|ng|sa) sign/u, confidence: 0.9 },

@@ -290,6 +290,14 @@ export const P = {
   }),
   startingLesson: (title: string): Line => ({ en: `Starting ${title}.`, fil: `Sinisimulan na natin ang ${title}.` }),
 
+  // ---------------------------------------------------------------- Learn language
+  learnLanguageHowTo: { en: 'Say "Learn FSL" or "Learn ASL".', fil: 'Sabihin ang "Matuto ng FSL" o "Matuto ng ASL".' },
+  learnLanguageDone: (name: string): Line => ({
+    en: `Okay, you're now learning ${name}. The sign camera reads ${name} too.`,
+    fil: `Sige, ${name} na ang pag-aaralan mo. ${name} na rin ang babasahin ng sign camera.`,
+  }),
+  learnLanguageAlready: (name: string): Line => ({ en: `You're already learning ${name}.`, fil: `${name} na ang pinag-aaralan mo.` }),
+
   // ---------------------------------------------------------------- voice and text
   alreadySlowest: { en: "That's already my slowest.", fil: 'Pinakamabagal na ako.' },
   alreadyFastest: { en: "That's already my fastest.", fil: 'Pinakamabilis na ako.' },

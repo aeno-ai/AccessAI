@@ -129,6 +129,12 @@ const CASES: Case[] = [
   ['start a new conversation', 'conv.start'],
   ['start a conversation with Ana', 'nav.chat_with', { friendName: 'Ana' }],
   ['start the next lesson', 'learn.next_lesson'],
+  ['learn ASL', 'learn.language', { value: 'asl' }],
+  ['Hey Laya, switch to FSL', 'learn.language', { value: 'fsl' }],
+  ['I want to learn American Sign Language', 'learn.language', { value: 'asl' }],
+  ['matuto ng FSL', 'learn.language', { value: 'fsl' }],
+  ['gusto kong mag-aral ng ASL', 'learn.language', { value: 'asl' }],
+  ['FSL', 'learn.language', { value: 'fsl' }],
   ['sign practice', 'learn.practice'],
   ['set my needs to mute', 'nav.settings_needs'],
   // ---- only inside AccessAI

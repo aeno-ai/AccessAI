@@ -1086,6 +1086,22 @@
       ]
     },
     {
+      "id": "learn.language",
+      "description": "Choose or switch which sign language Learn teaches: FSL (Filipino Sign Language) or ASL (American Sign Language). value = fsl or asl",
+      "slots": [
+        "value"
+      ],
+      "examples": [
+        "learn ASL",
+        "I want to learn Filipino Sign Language",
+        "switch learn to FSL",
+        "change my lessons to American Sign Language",
+        "matuto ng FSL",
+        "gusto kong mag-aral ng ASL",
+        "palitan sa FSL ang pinag-aaralan ko"
+      ]
+    },
+    {
       "id": "fun.papasa",
       "description": "Asking whether the team will pass (their thesis defense, the panel, the grade) — Laya answers with a joke",
       "slots": [],
